@@ -1,0 +1,303 @@
+﻿<!DOCTYPE html>
+<html lang="fi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>C@S</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="container">
+    <header class="header">
+      <div class="header-left">
+        <span class="header-title">C@S</span>
+      </div>
+      <span id="status-badge" class="badge badge-idle">Odottaa...</span>
+    </header>
+
+    <div class="hero-section">
+      <div class="hero-counts">
+        <div class="hero-count-item">
+          <span class="hero-number" id="order-count">-</span>
+          <span class="hero-label">COLLECTIA</span>
+        </div>
+        <div class="hero-divider"></div>
+        <div class="hero-count-item wolt">
+          <span class="hero-number" id="wolt-count">-</span>
+          <span class="hero-label">WOLT</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="action-bar">
+      <button id="refresh-btn" class="btn btn-secondary">Päivitä</button>
+      <button id="open-launchpad" class="btn btn-primary">Avaa Launchpad</button>
+    </div>
+
+    
+    <nav class="tab-nav">
+      <button class="tab-btn active" data-tab="status">Tila</button>
+      <button class="tab-btn" data-tab="layout">Jako</button>
+      <button class="tab-btn" data-tab="editor">Muokkaa</button>
+      <button class="tab-btn" data-tab="settings">Asetukset</button>
+    </nav>
+
+    
+    <div class="tab-content">
+      
+      
+      <div class="tab-panel active" data-panel="status">
+        <div class="status-info">
+          <div class="info-row">
+            <span class="info-label">Yhteys</span>
+            <div class="connection-wrap">
+              <span id="connection-status" class="status-indicator connected"></span>
+              <span id="connection-text">Yhdistetty</span>
+            </div>
+          </div>
+          <div class="info-row">
+            <span class="info-label">Viimeksi tarkistettu</span>
+            <span class="info-value" id="last-check">--:--</span>
+          </div>
+        </div>
+        <button id="test-alert" class="btn btn-primary" style="width: 100%; margin-top: 15px;">Testaa hälytys</button>
+      </div>
+
+      
+      <div class="tab-panel" data-panel="layout">
+        <h4 class="section-title">Näytön jako</h4>
+        <p class="section-desc">Vedä punaista viivaa säätääksesi paneelien leveyttä</p>
+        
+        
+        <div class="split-control-container">
+          <div class="monitor-frame" id="monitor-frame">
+            <div class="monitor-left-panel" id="monitor-left">
+              <span class="panel-label">SAP</span>
+            </div>
+            <div class="monitor-divider" id="monitor-divider"></div>
+            <div class="monitor-right-panel" id="monitor-right">
+              <span class="panel-label">WOLT</span>
+            </div>
+          </div>
+          <div class="split-ratio-display">
+            <span id="split-ratio-left">50</span>% / <span id="split-ratio-right">50</span>%
+          </div>
+        </div>
+
+        <div class="editor-divider"></div>
+        
+        <label class="setting-row">
+          <span>Split Mode päällä</span>
+          <input type="checkbox" id="split-mode-enabled">
+        </label>
+
+        <label class="setting-row">
+          <span>Zen Mode (piilota SAP-otsikot)</span>
+          <input type="checkbox" id="zen-mode-enabled">
+        </label>
+      </div>
+
+      
+      <div class="tab-panel" data-panel="editor">
+        <h4 class="section-title">Hälytyksen Sijainti</h4>
+        <p class="section-desc">Valitse mistä näytön kulmasta hälytys näkyy</p>
+        
+        
+        <div class="position-grid" id="position-grid">
+          <button class="position-btn" data-position="top-left">
+            <span class="position-icon">↖</span>
+            <span class="position-name">Ylä-vasen</span>
+          </button>
+          <button class="position-btn" data-position="top-center">
+            <span class="position-icon">↑</span>
+            <span class="position-name">Ylä-keski</span>
+          </button>
+          <button class="position-btn" data-position="top-right">
+            <span class="position-icon">↗</span>
+            <span class="position-name">Ylä-oikea</span>
+          </button>
+          <button class="position-btn" data-position="middle-left">
+            <span class="position-icon">←</span>
+            <span class="position-name">Vasen</span>
+          </button>
+          <button class="position-btn active" data-position="center">
+            <span class="position-icon">●</span>
+            <span class="position-name">Keskellä</span>
+          </button>
+          <button class="position-btn" data-position="middle-right">
+            <span class="position-icon">→</span>
+            <span class="position-name">Oikea</span>
+          </button>
+          <button class="position-btn" data-position="bottom-left">
+            <span class="position-icon">↙</span>
+            <span class="position-name">Ala-vasen</span>
+          </button>
+          <button class="position-btn" data-position="bottom-center">
+            <span class="position-icon">↓</span>
+            <span class="position-name">Ala-keski</span>
+          </button>
+          <button class="position-btn" data-position="bottom-right">
+            <span class="position-icon">↘</span>
+            <span class="position-name">Ala-oikea</span>
+          </button>
+        </div>
+
+        <div class="editor-divider"></div>
+        
+        <h4 class="section-title">Tekstien Koko</h4>
+        <div class="size-selector">
+          <button class="size-btn" data-size="small">
+            <span class="size-preview" style="font-size: 10px;">Aa</span>
+            <span class="size-label">Pieni</span>
+          </button>
+          <button class="size-btn" data-size="medium">
+            <span class="size-preview" style="font-size: 14px;">Aa</span>
+            <span class="size-label">Keski</span>
+          </button>
+          <button class="size-btn active" data-size="large">
+            <span class="size-preview" style="font-size: 18px;">Aa</span>
+            <span class="size-label">Suuri</span>
+          </button>
+          <button class="size-btn" data-size="massive">
+            <span class="size-preview" style="font-size: 22px;">Aa</span>
+            <span class="size-label">Valtava</span>
+          </button>
+        </div>
+
+        <div class="editor-divider"></div>
+        <h4 class="section-title">Collect@Store Tekstit</h4>
+
+        <div class="editor-group">
+          <label class="editor-label">Pääotsikko</label>
+          <input type="text" id="editor-main-title" class="editor-input" value="Uusia collecteja!" placeholder="Esim. Uusia tilauksia!">
+        </div>
+        
+        <div class="editor-group">
+          <label class="editor-label">Alaotsikko</label>
+          <input type="text" id="editor-sub-title" class="editor-input" value="Nyt keräämään!!" placeholder="Esim. Käy hakemassa!">
+        </div>
+
+        <div class="editor-group">
+          <label class="editor-label">Tagi (yläkulma)</label>
+          <input type="text" id="editor-brand-tag" class="editor-input" value="C@S" placeholder="Lyhyt tunniste">
+        </div>
+
+        <div class="editor-group">
+          <label class="editor-label">Laskurin otsikko</label>
+          <input type="text" id="editor-counter-label" class="editor-input" value="Odottaa keräystä" placeholder="Laskurin alla">
+        </div>
+
+        <div class="editor-divider"></div>
+        <h4 class="section-title">Wolt Tekstit</h4>
+
+        <div class="editor-group">
+          <label class="editor-label">Pääotsikko</label>
+          <input type="text" id="wolt-main-title" class="editor-input" value="Uusia Wolt-tilauksia!" placeholder="Esim. Uusia Wolt-tilauksia!">
+        </div>
+        
+        <div class="editor-group">
+          <label class="editor-label">Alaotsikko</label>
+          <input type="text" id="wolt-sub-title" class="editor-input" value="Nyt toimittamaan!!" placeholder="Esim. Lähetä heti!">
+        </div>
+
+        <div class="editor-group">
+          <label class="editor-label">Tagi (yläkulma)</label>
+          <input type="text" id="wolt-brand-tag" class="editor-input" value="WOLT" placeholder="Lyhyt tunniste">
+        </div>
+
+        <div class="editor-group">
+          <label class="editor-label">Laskurin otsikko</label>
+          <input type="text" id="wolt-counter-label" class="editor-input" value="Odottaa toimitusta" placeholder="Laskurin alla">
+        </div>
+
+        <div class="editor-divider"></div>
+
+        <label class="setting-row">
+          <span>Korostettu Pop-animaatio</span>
+          <input type="checkbox" id="editor-emphasis-anim">
+        </label>
+
+        <button id="editor-reset" class="btn btn-secondary" style="width: 100%; margin-top: 15px;">Palauta oletukset</button>
+      </div>
+
+      
+      <div class="tab-panel" data-panel="settings">
+        <div class="editor-group">
+          <label class="editor-label">Tarkistusväli (sek)</label>
+          <div class="range-group">
+            <input type="range" id="poll-interval" min="1" max="60" value="30" step="1" class="range-slider">
+            <span class="range-value" id="poll-interval-value">30</span>
+          </div>
+        </div>
+
+        <div class="editor-group">
+          <label class="editor-label">Hälytyksen kesto (sek)</label>
+          <div class="range-group">
+            <input type="range" id="alert-duration" min="1" max="20" value="10" step="1" class="range-slider">
+            <span class="range-value" id="alert-duration-value">10</span>
+          </div>
+        </div>
+
+        <label class="setting-row">
+          <span>Äänimerkit</span>
+          <input type="checkbox" id="sound-enabled" checked>
+        </label>
+        
+        <div class="editor-divider"></div>
+        <h4 class="section-title">Collect@Store Media</h4>
+
+        <div class="editor-group file-group">
+          <label class="editor-label">Äänitiedosto</label>
+          <div class="file-input-wrap">
+            <span id="sound-file-name" class="file-name">Ei valittu</span>
+            <label class="btn btn-file">
+              Valitse
+              <input type="file" id="sound-file" accept="audio/*" hidden>
+            </label>
+          </div>
+        </div>
+
+        <div class="editor-group file-group">
+          <label class="editor-label">Kuvatiedosto</label>
+          <div class="file-input-wrap">
+            <span id="image-file-name" class="file-name">Ei valittu</span>
+            <label class="btn btn-file">
+              Valitse
+              <input type="file" id="image-file" accept="image/*" hidden>
+            </label>
+          </div>
+        </div>
+
+        <div class="editor-divider"></div>
+        <h4 class="section-title">Wolt/Express Media</h4>
+        
+        <div class="editor-group file-group">
+          <label class="editor-label">Wolt Ääni</label>
+          <div class="file-input-wrap">
+            <span id="wolt-sound-file-name" class="file-name">Ei valittu</span>
+            <label class="btn btn-file">
+              Valitse
+              <input type="file" id="wolt-sound-file" accept="audio/*" hidden>
+            </label>
+          </div>
+        </div>
+
+        <div class="editor-group file-group">
+          <label class="editor-label">Wolt Kuva</label>
+          <div class="file-input-wrap">
+            <span id="wolt-image-file-name" class="file-name">Ei valittu</span>
+            <label class="btn btn-file">
+              Valitse
+              <input type="file" id="wolt-image-file" accept="image/*" hidden>
+            </label>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <script src="idb.js"></script>
+  <script src="popup.js"></script>
+</body>
+</html>
