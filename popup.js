@@ -353,10 +353,10 @@
       monitorLeft.style.width = `${ratio}%`;
     }
     if (splitRatioLeft) {
-      splitRatioLeft.textContent = String(ratio);
+      splitRatioLeft.textContent = String(Math.round(ratio));
     }
     if (splitRatioRight) {
-      splitRatioRight.textContent = String(100 - ratio);
+      splitRatioRight.textContent = String(Math.round(100 - ratio));
     }
   }
   

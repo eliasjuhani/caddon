@@ -118,22 +118,59 @@ async function forwardCheckToContent() {
       return;
     }
     
+    let successCount = 0;
     for (const tab of tabs) {
       try {
-        await chrome.tabs.sendMessage(tab.id, { action: 'triggerCheck' });
-        console.log('Collect@Store Background: Sent check to tab', tab.id);
-        return;
+        // Check if content script is loaded by sending a ping
+        const response = await chrome.tabs.sendMessage(tab.id, { action: 'triggerCheck' });
+        if (response?.success) {
+          console.log('Collect@Store Background: Successfully sent check to tab', tab.id);
+          successCount++;
+        }
       } catch (e) {
-        console.log('Collect@Store Background: Tab unreachable:', e.message);
+        console.log('Collect@Store Background: Tab', tab.id, 'unreachable, trying to inject content script...');
+        
+        // Try to inject the content script if it's not responding
+        try {
+          await chrome.scripting.executeScript({
+            target: { tabId: tab.id },
+            files: ['content.js']
+          });
+          await chrome.scripting.insertCSS({
+            target: { tabId: tab.id },
+            files: ['overlay.css']
+          });
+          
+          // Wait a bit for the script to initialize
+          await new Promise(r => setTimeout(r, 500));
+          
+          // Try again
+          const retryResponse = await chrome.tabs.sendMessage(tab.id, { action: 'triggerCheck' });
+          if (retryResponse?.success) {
+            console.log('Collect@Store Background: Successfully sent check after re-injection to tab', tab.id);
+            successCount++;
+          }
+        } catch (injectError) {
+          console.warn('Collect@Store Background: Failed to inject/retry for tab', tab.id, ':', injectError.message);
+        }
       }
     }
     
-    console.warn('Collect@Store Background: All Launchpad tabs unreachable');
-    await chrome.storage.local.set({
-      connectionStatus: 'error',
-      lastError: 'Tab ei vastaa',
-      lastCheck: Date.now()
-    });
+    if (successCount === 0) {
+      console.warn('Collect@Store Background: All Launchpad tabs unreachable');
+      await chrome.storage.local.set({
+        connectionStatus: 'error',
+        lastError: 'Tab ei vastaa',
+        lastCheck: Date.now()
+      });
+    } else {
+      // Update connection status on success
+      await chrome.storage.local.set({
+        connectionStatus: 'connected',
+        lastError: null,
+        lastCheck: Date.now()
+      });
+    }
     
   } catch (error) {
     console.error('Collect@Store Background: Error forwarding check:', error);

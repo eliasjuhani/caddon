@@ -1,7 +1,12 @@
 ﻿
 (function() {
   'use strict';
-  console.log('C@S Content: Script loaded v6.0 (Split Dashboard)');
+  
+  // Detect if running inside an iframe
+  const isInIframe = window.self !== window.top;
+  
+  console.log('C@S Content: Script loaded v6.2 (Split View)', isInIframe ? '[IFRAME]' : '[MAIN]');
+  
   let pollInterval = null;
   let injected = false;
   let injectScriptReady = false;
@@ -13,8 +18,38 @@
   let zenModeStyleElement = null;
   let splitLayoutActive = false;
   let woltPanelElement = null;
+  let splitDividerElement = null;
   let splitStyleElement = null;
   let currentWoltOrders = [];
+  
+  // Track data from both frames separately
+  let mainFrameData = { collectCount: 0, woltCount: 0, collectOldestTimestamp: null, woltOldestTimestamp: null, woltOrders: [] };
+  let iframeData = { collectCount: 0, woltCount: 0, collectOldestTimestamp: null, woltOldestTimestamp: null, woltOrders: [] };
+  
+  // Store drag event handlers for cleanup
+  let dragHandlers = null;
+  
+  // Wait for SAP UI elements to be ready before applying layout changes
+  function waitForSapUI(callback, maxAttempts = 50) {
+    let attempts = 0;
+    const checkInterval = setInterval(() => {
+      attempts++;
+      const sapContainer = document.querySelector('.sapUshellApplicationContainer') || 
+                           document.querySelector('#__jsview1--pageOrderView-cont') ||
+                           document.querySelector('[id*="--pageOrderView-cont"]') ||
+                           document.querySelector('.sapMShellContent');
+      
+      if (sapContainer) {
+        clearInterval(checkInterval);
+        console.log('C@S Content: SAP UI found, applying layout');
+        callback();
+      } else if (attempts >= maxAttempts) {
+        clearInterval(checkInterval);
+        console.warn('C@S Content: SAP UI not found after max attempts, skipping layout');
+      }
+    }, 200);
+  }
+  
   init();
   async function init() {
     const isSimulator = window.location.protocol === 'chrome-extension:';
@@ -107,12 +142,16 @@
     injectPageScript();
     startPolling(settings.pollIntervalSeconds || 30);
     const modeSettings = await chrome.storage.local.get(['zenModeEnabled', 'splitModeEnabled', 'splitRatio']);
-    if (modeSettings.zenModeEnabled) {
-      applyZenMode(true);
+    
+    // Only apply modes if they are explicitly enabled
+    if (modeSettings.zenModeEnabled === true) {
+      waitForSapUI(() => applyZenMode(true));
     }
-    if (modeSettings.splitModeEnabled) {
-      applySplitLayout(modeSettings.splitRatio || 50);
+    
+    if (modeSettings.splitModeEnabled === true) {
+      waitForSapUI(() => applySplitLayout(modeSettings.splitRatio || 50));
     }
+    
     chrome.storage.onChanged.addListener(handleStorageChange);
     window.addEventListener('beforeunload', cleanup);
   }
@@ -122,11 +161,19 @@
         startPolling(changes.pollIntervalSeconds.newValue);
       }
       if (changes.zenModeEnabled) {
-        applyZenMode(changes.zenModeEnabled.newValue);
+        if (changes.zenModeEnabled.newValue) {
+          waitForSapUI(() => applyZenMode(true));
+        } else {
+          applyZenMode(false);
+        }
       }
       if (changes.splitModeEnabled) {
         if (changes.splitModeEnabled.newValue) {
-          chrome.storage.local.get(['splitRatio']).then(s => applySplitLayout(s.splitRatio || 50));
+          chrome.storage.local.get(['splitRatio']).then(s => {
+            waitForSapUI(() => applySplitLayout(s.splitRatio || 50));
+          }).catch(error => {
+            console.warn('C@S Content: Could not get split ratio:', error.message);
+          });
         } else {
           removeSplitLayout();
         }
@@ -141,6 +188,7 @@
     closeAlertOverlay();
     removeSplitLayout();
   }
+  
   function startPolling(seconds) {
     const intervalSec = Math.max(1, Math.min(60, parseInt(seconds, 10) || 30));
     if (pollInterval) clearInterval(pollInterval);
@@ -155,13 +203,17 @@
   let currentWoltOldestTimestamp = null;
   function injectPageScript() {
     if (injected) return;
-    const script = document.createElement('script');
-    script.src = chrome.runtime.getURL('inject.js');
-    script.onload = function() { 
-      injected = true; 
-      this.remove(); 
-    };
-    (document.head || document.documentElement).appendChild(script);
+    try {
+      const script = document.createElement('script');
+      script.src = chrome.runtime.getURL('inject.js');
+      script.onload = function() { 
+        injected = true; 
+        this.remove(); 
+      };
+      (document.head || document.documentElement).appendChild(script);
+    } catch (error) {
+      console.warn('C@S Content: Could not inject script (extension context invalidated):', error.message);
+    }
   }
   async function sendConfigToInject() {
     if (!injectScriptReady) {
@@ -187,25 +239,78 @@
     }
   }
   function triggerPageRefresh() {
+    console.log('C@S Content: Triggering page refresh, injectScriptReady:', injectScriptReady);
+    
+    if (!injectScriptReady) {
+      // Inject script not ready yet, try to inject it again
+      console.log('C@S Content: Inject script not ready, re-injecting...');
+      injectPageScript();
+      // Retry after a short delay
+      setTimeout(() => {
+        window.postMessage({ type: 'COLLECT_STORE_TRIGGER_REFRESH' }, '*');
+      }, 500);
+      return;
+    }
+    
     window.postMessage({ type: 'COLLECT_STORE_TRIGGER_REFRESH' }, '*');
   }
   window.addEventListener('message', (event) => {
     if (event.source === window && event.data?.type === 'COLLECT_STORE_DATA') {
       lastSuccessfulPoll = Date.now();
-      if (event.data.data) {
-        currentOrderCount = event.data.data.collectCount || 0;
-        currentOldestTimestamp = event.data.data.oldestOrderTimestamp || null;
-        currentWoltCount = event.data.data.woltCount || 0;
-        currentWoltOldestTimestamp = event.data.data.woltOldestTimestamp || null;
-        if (splitLayoutActive && event.data.data.woltOrders) {
-          currentWoltOrders = event.data.data.woltOrders;
-          updateWoltPanel(currentWoltOrders);
-        }
+      
+      // Store data based on which frame it came from
+      const frameId = event.data.frameId || 'main';
+      const incomingData = event.data.data || {};
+      
+      if (frameId === 'main') {
+        mainFrameData = {
+          collectCount: incomingData.collectCount || 0,
+          woltCount: incomingData.woltCount || 0,
+          collectOldestTimestamp: incomingData.oldestOrderTimestamp || null,
+          woltOldestTimestamp: incomingData.woltOldestTimestamp || null,
+          woltOrders: incomingData.woltOrders || []
+        };
+      } else if (frameId === 'iframe') {
+        iframeData = {
+          collectCount: incomingData.collectCount || 0,
+          woltCount: incomingData.woltCount || 0,
+          collectOldestTimestamp: incomingData.oldestOrderTimestamp || null,
+          woltOldestTimestamp: incomingData.woltOldestTimestamp || null,
+          woltOrders: incomingData.woltOrders || []
+        };
       }
-      chrome.runtime.sendMessage({ action: 'updateOrders', data: event.data.data });
+      
+      // Merge data from both frames - take the maximum count from either frame
+      const mergedData = {
+        collectCount: Math.max(mainFrameData.collectCount, iframeData.collectCount),
+        woltCount: Math.max(mainFrameData.woltCount, iframeData.woltCount),
+        oldestOrderTimestamp: [mainFrameData.collectOldestTimestamp, iframeData.collectOldestTimestamp]
+          .filter(t => t !== null)
+          .sort((a, b) => a - b)[0] || null,
+        woltOldestTimestamp: [mainFrameData.woltOldestTimestamp, iframeData.woltOldestTimestamp]
+          .filter(t => t !== null)
+          .sort((a, b) => a - b)[0] || null,
+        woltOrders: [...mainFrameData.woltOrders, ...iframeData.woltOrders],
+        storeName: '',
+        pendingOrders: []
+      };
+      
+      // Update local state
+      currentOrderCount = mergedData.collectCount;
+      currentOldestTimestamp = mergedData.oldestOrderTimestamp;
+      currentWoltCount = mergedData.woltCount;
+      currentWoltOldestTimestamp = mergedData.woltOldestTimestamp;
+      currentWoltOrders = mergedData.woltOrders;
+      
+      // Only send from main frame to avoid duplicates
+      if (!isInIframe) {
+        chrome.runtime.sendMessage({ action: 'updateOrders', data: mergedData }).catch(error => {
+          console.warn('C@S Content: Extension context invalidated, ignoring:', error.message);
+        });
+      }
     }
     if (event.source === window && event.data?.type === 'COLLECT_STORE_READY') {
-      console.log('C@S Content: Received READY signal from inject.js');
+      console.log('C@S Content: Received READY signal from inject.js, frameId:', event.data.frameId);
       injectScriptReady = true;
       sendConfigToInject();
     }
@@ -219,25 +324,52 @@
       sendResponse({ success: true });
     } else if (message.action === 'updateModes') {
       if (message.data) {
-        applyZenMode(message.data.zenModeEnabled);
+        // Handle zen mode
+        if (message.data.zenModeEnabled) {
+          applyZenMode(true);
+        } else {
+          applyZenMode(false);
+        }
+        
+        // Handle split mode
         if (message.data.splitModeEnabled) {
-          applySplitLayout(message.data.splitRatio || 50);
+          if (splitLayoutActive) {
+            updateSplitRatio(message.data.splitRatio || 50);
+          } else {
+            applySplitLayout(message.data.splitRatio || 50);
+          }
         } else {
           removeSplitLayout();
         }
       }
       sendResponse({ success: true });
     } else if (message.action === 'previewSplit') {
-      if (splitLayoutActive && message.data?.splitRatio) {
-        updateSplitRatio(message.data.splitRatio);
+      if (message.data?.splitRatio) {
+        if (splitLayoutActive) {
+          updateSplitRatio(message.data.splitRatio);
+        }
       }
       sendResponse({ success: true });
     } else if (message.action === 'applySplit') {
       if (message.data) {
-        applyZenMode(message.data.zenModeEnabled);
-        if (message.data.splitModeEnabled) {
-          applySplitLayout(message.data.splitRatio || 50);
+        // Handle zen mode
+        if (message.data.zenModeEnabled) {
+          applyZenMode(true);
         } else {
+          applyZenMode(false);
+        }
+        
+        // Handle split mode
+        if (message.data.splitModeEnabled) {
+          if (splitLayoutActive) {
+            // Already active, just update ratio
+            updateSplitRatio(message.data.splitRatio || 50);
+          } else {
+            // Activate split layout
+            applySplitLayout(message.data.splitRatio || 50);
+          }
+        } else {
+          // Disable split mode
           removeSplitLayout();
         }
       }
@@ -248,62 +380,169 @@
   function applyZenMode(enabled) {
     if (enabled) {
       if (zenModeStyleElement) return;
+      
+      // Add aggressive CSS
       zenModeStyleElement = document.createElement('style');
       zenModeStyleElement.id = 'cs-zen-mode-styles';
       zenModeStyleElement.textContent = `
-        .sapUshellShellHead,
+        /* Hide all shell chrome */
         #shell-header,
-        .sapUshellShellBG,
-        #__jsview1--pov_QuickFilters,
-        #__jsview1--navC,
-        #__jsview1--oBarH,
+        [id*="shell-hdr"],
+        #shell-toolArea,
+        .sapUshellShellHead,
+        .sapUshellShellHeader,
         .sapUshellShellHeadItm,
-        .sapUshellShellHeadSearchContainer,
-        [id*="--pov_QuickFilters"],
-        [id*="--navC"],
-        [id*="--oBarH"] {
+        .sapUshellAnchorNavigationBar,
+        .sapUshellNavigationBar {
           display: none !important;
-          visibility: hidden !important;
-          height: 0 !important;
-          min-height: 0 !important;
-          overflow: hidden !important;
         }
-        #__jsview1--pageOrderView-cont,
-        [id*="--pageOrderView-cont"] {
+        
+        /* Force full viewport */
+        body, html {
+          margin: 0 !important;
+          padding: 0 !important;
+          width: 100vw !important;
+          height: 100vh !important;
+          overflow: hidden !important;
+          background: white !important;
+        }
+        
+        /* Main canvas container */
+        #canvas,
+        .sapUshellShellCanvas {
           position: fixed !important;
           top: 0 !important;
           left: 0 !important;
-          right: 0 !important;
-          bottom: 0 !important;
+          width: 100vw !important;
           height: 100vh !important;
-          width: var(--cs-sap-width, 100vw) !important;
-          z-index: 9999 !important;
           margin: 0 !important;
           padding: 0 !important;
+          display: flex !important;
+          flex-direction: column !important;
         }
-        .sapMList,
-        .sapMListUl,
-        [id*="--listItems-listUl"] {
-          max-height: none !important;
+        
+        /* Page content section - expand to fill */
+        .sapMPageEnableScrolling,
+        section[id*="pageSearch-cont"],
+        section[id*="cont"] {
+          flex: 1 !important;
+          width: 100% !important;
           height: auto !important;
-        }
-        .sapUshellApplicationContainer,
-        .sapMShellContent {
-          padding: 0 !important;
           margin: 0 !important;
+          padding: 0 !important;
+          background: white !important;
+        }
+        
+        /* Footer - keep at bottom */
+        .sapMPageFooter,
+        footer {
+          width: 100% !important;
+          margin: 0 !important;
+          flex-shrink: 0 !important;
         }
       `;
       document.head.appendChild(zenModeStyleElement);
+      
+      // Use JavaScript to aggressively hide shell elements and fix layout
+      const hideElements = () => {
+        // Hide header/navigation
+        const selectors = [
+          '#shell-header',
+          '[id*="shell-hdr"]',
+          '#shell-toolArea',
+          '.sapUshellShellHead',
+          '.sapUshellShellHeader',
+          '.sapUshellAnchorNavigationBar',
+          '.sapUshellNavigationBar'
+        ];
+        
+        selectors.forEach(selector => {
+          document.querySelectorAll(selector).forEach(el => {
+            el.style.display = 'none';
+            el.style.visibility = 'hidden';
+            el.style.height = '0';
+            el.style.width = '0';
+            el.style.overflow = 'hidden';
+          });
+        });
+        
+        // Force canvas to full screen with flex layout
+        const canvas = document.querySelector('#canvas') || document.querySelector('.sapUshellShellCanvas');
+        if (canvas) {
+          canvas.style.position = 'fixed';
+          canvas.style.top = '0';
+          canvas.style.left = '0';
+          canvas.style.width = '100vw';
+          canvas.style.height = '100vh';
+          canvas.style.margin = '0';
+          canvas.style.padding = '0';
+          canvas.style.display = 'flex';
+          canvas.style.flexDirection = 'column';
+        }
+        
+        // Fix page content section
+        const pageSection = document.querySelector('.sapMPageEnableScrolling') || 
+                           document.querySelector('[id*="pageSearch-cont"]');
+        if (pageSection) {
+          pageSection.style.flex = '1';
+          pageSection.style.width = '100%';
+          pageSection.style.margin = '0';
+          pageSection.style.padding = '0';
+          pageSection.style.background = 'white';
+        }
+        
+        // Fix footer
+        const footer = document.querySelector('.sapMPageFooter');
+        if (footer) {
+          footer.style.width = '100%';
+          footer.style.margin = '0';
+          footer.style.flexShrink = '0';
+        }
+        
+        // Remove body background
+        document.body.style.background = 'white';
+        document.documentElement.style.background = 'white';
+      };
+      
+      // Apply immediately and watch for DOM changes
+      hideElements();
+      setTimeout(hideElements, 100);
+      setTimeout(hideElements, 500);
+      
+      // Set up observer to catch dynamically added elements
+      const observer = new MutationObserver(hideElements);
+      observer.observe(document.body, { childList: true, subtree: true });
+      zenModeStyleElement._observer = observer;
+      
       console.log('C@S Content: Zen Mode enabled');
     } else {
       if (zenModeStyleElement) {
+        if (zenModeStyleElement._observer) {
+          zenModeStyleElement._observer.disconnect();
+        }
         zenModeStyleElement.remove();
         zenModeStyleElement = null;
+        
+        // Restore canvas position
+        const canvas = document.querySelector('#canvas') || document.querySelector('.sapUshellShellCanvas');
+        if (canvas) {
+          canvas.style.removeProperty('position');
+          canvas.style.removeProperty('top');
+          canvas.style.removeProperty('left');
+          canvas.style.removeProperty('width');
+          canvas.style.removeProperty('height');
+        }
+        
         console.log('C@S Content: Zen Mode disabled');
       }
     }
   }
   function applySplitLayout(ratio) {
+    // Don't create split layout inside iframe - it would cause infinite nesting
+    if (isInIframe) {
+      console.log('C@S Content: Skipping split layout in iframe');
+      return;
+    }
     if (splitLayoutActive) {
       updateSplitRatio(ratio);
       return;
@@ -317,167 +556,64 @@
         --cs-sap-width: ${ratio}%;
         --cs-wolt-width: ${100 - ratio}%;
       }
-      #cs-split-wrapper {
+      
+      /* Add padding to body to make room for Wolt panel and divider */
+      html.cs-split-active body {
+        padding-right: calc(var(--cs-wolt-width) + 6px) !important;
+        box-sizing: border-box !important;
+      }
+      
+      /* The divider between panels */
+      #cs-split-divider {
         position: fixed !important;
         top: 0;
-        left: 0;
-        right: 0;
-        bottom: 0;
-        display: flex !important;
-        flex-direction: row;
-        z-index: 10000;
-        background: #1a1a2e;
+        right: var(--cs-wolt-width);
+        width: 4px;
+        height: 100vh;
+        background: rgba(0, 0, 0, 0.15);
+        z-index: 10001;
+        backdrop-filter: blur(10px);
+        -webkit-backdrop-filter: blur(10px);
+        box-shadow: 0 0 20px rgba(0, 0, 0, 0.1);
       }
-      #cs-sap-panel {
-        width: var(--cs-sap-width);
-        height: 100%;
-        overflow: auto;
-        position: relative;
-        background: #fff;
-        box-shadow: inset -40px 0 40px -20px rgba(0, 0, 0, 0.15);
-      }
+      
+      /* The right panel with iframe showing SAP */
       #cs-wolt-panel {
+        position: fixed !important;
+        top: 0;
+        right: 0;
         width: var(--cs-wolt-width);
+        height: 100vh;
+        overflow: hidden;
+        background: #fff;
+        z-index: 9999;
+        box-shadow: -5px 0 20px rgba(0,0,0,0.3);
+      }
+      #cs-wolt-panel iframe {
+        width: 100%;
         height: 100%;
-        overflow-y: auto;
-        background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
-        padding: 16px;
-        box-sizing: border-box;
-      }
-      .cs-wolt-header {
-        display: flex;
-        align-items: center;
-        gap: 12px;
-        padding: 12px 16px;
-        background: rgba(0, 188, 212, 0.15);
-        border-radius: 12px;
-        margin-bottom: 16px;
-        border: 1px solid rgba(0, 188, 212, 0.3);
-      }
-      .cs-wolt-header-icon {
-        font-size: 28px;
-      }
-      .cs-wolt-header-title {
-        font-size: 1.4rem;
-        font-weight: 700;
-        color: #00bcd4;
-        margin: 0;
-      }
-      .cs-wolt-header-count {
-        margin-left: auto;
-        background: #00bcd4;
-        color: #1a1a2e;
-        font-weight: 700;
-        font-size: 1.2rem;
-        padding: 6px 14px;
-        border-radius: 20px;
-      }
-      .cs-wolt-card {
-        background: rgba(255, 255, 255, 0.05);
-        border-radius: 12px;
-        padding: 14px 16px;
-        margin-bottom: 12px;
-        border-left: 4px solid #00bcd4;
-        transition: all 0.2s ease;
-      }
-      .cs-wolt-card:hover {
-        background: rgba(255, 255, 255, 0.1);
-        transform: translateX(4px);
-      }
-      .cs-wolt-card-urgent {
-        border-left-color: #e74c3c;
-        animation: urgent-pulse 2s infinite;
-      }
-      @keyframes urgent-pulse {
-        0%, 100% { background: rgba(231, 76, 60, 0.1); }
-        50% { background: rgba(231, 76, 60, 0.2); }
-      }
-      .cs-wolt-card-header {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        margin-bottom: 8px;
-      }
-      .cs-wolt-card-order-id {
-        font-weight: 600;
-        color: #fff;
-        font-size: 1rem;
-      }
-      .cs-wolt-card-time {
-        font-size: 0.85rem;
-        color: rgba(255, 255, 255, 0.7);
-        display: flex;
-        align-items: center;
-        gap: 4px;
-      }
-      .cs-wolt-card-time-urgent {
-        color: #e74c3c;
-        font-weight: 600;
-      }
-      .cs-wolt-card-info {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 8px;
-        font-size: 0.9rem;
-        color: rgba(255, 255, 255, 0.8);
-      }
-      .cs-wolt-card-tag {
-        background: rgba(0, 188, 212, 0.2);
-        color: #00bcd4;
-        padding: 3px 8px;
-        border-radius: 4px;
-        font-size: 0.8rem;
-        font-weight: 500;
-      }
-      .cs-wolt-empty {
-        text-align: center;
-        padding: 40px 20px;
-        color: rgba(255, 255, 255, 0.5);
-      }
-      .cs-wolt-empty-icon {
-        font-size: 48px;
-        margin-bottom: 12px;
-        opacity: 0.3;
-      }
-      .cs-wolt-empty-text {
-        font-size: 1.1rem;
-      }
-      body.cs-split-active {
-        overflow: hidden !important;
-      }
-      body.cs-split-active .sapUshellApplicationContainer,
-      body.cs-split-active #__jsview1--pageOrderView-cont,
-      body.cs-split-active [id*="--pageOrderView-cont"] {
-        position: relative !important;
-        width: 100% !important;
-        height: 100% !important;
-        top: auto !important;
-        left: auto !important;
-        right: auto !important;
-        bottom: auto !important;
+        border: none;
       }
     `;
     document.head.appendChild(splitStyleElement);
-    const wrapper = document.createElement('div');
-    wrapper.id = 'cs-split-wrapper';
-    const sapPanel = document.createElement('div');
-    sapPanel.id = 'cs-sap-panel';
+    
+    // Add the divider between panels (non-draggable, visual only)
+    splitDividerElement = document.createElement('div');
+    splitDividerElement.id = 'cs-split-divider';
+    document.body.appendChild(splitDividerElement);
+    
+    // Add the right panel with an iframe showing the same SAP page
     woltPanelElement = document.createElement('div');
     woltPanelElement.id = 'cs-wolt-panel';
-    woltPanelElement.innerHTML = createWoltPanelHTML([]);
-    wrapper.appendChild(sapPanel);
-    wrapper.appendChild(woltPanelElement);
-    const sapContainer = document.querySelector('.sapUshellApplicationContainer') || 
-                         document.querySelector('#__jsview1--pageOrderView-cont') ||
-                         document.querySelector('[id*="--pageOrderView-cont"]');
-    if (sapContainer) {
-      const originalParent = sapContainer.parentNode;
-      document.body.appendChild(wrapper);
-      sapPanel.appendChild(sapContainer);
-    } else {
-      document.body.appendChild(wrapper);
-    }
-    document.body.classList.add('cs-split-active');
+    const iframe = document.createElement('iframe');
+    iframe.src = window.location.href;
+    iframe.id = 'cs-split-iframe';
+    woltPanelElement.appendChild(iframe);
+    document.body.appendChild(woltPanelElement);
+    
+    // Add class to html element to shrink the page
+    document.documentElement.classList.add('cs-split-active');
+    
     splitLayoutActive = true;
     console.log('C@S Content: Split Layout activated');
   }
@@ -491,59 +627,45 @@
   function removeSplitLayout() {
     if (!splitLayoutActive) return;
     console.log('C@S Content: Removing Split Layout');
-    const sapPanel = document.getElementById('cs-sap-panel');
-    const wrapper = document.getElementById('cs-split-wrapper');
-    if (sapPanel && sapPanel.firstChild) {
-      document.body.insertBefore(sapPanel.firstChild, wrapper);
+    
+    // Remove drag event listeners
+    if (dragHandlers) {
+      window.removeEventListener('mousemove', dragHandlers.handleMouseMove);
+      window.removeEventListener('mouseup', dragHandlers.handleMouseUp);
+      window.removeEventListener('mouseleave', dragHandlers.handleMouseUp);
+      dragHandlers = null;
     }
-    if (wrapper) wrapper.remove();
+    
+    // Remove the Wolt panel
+    if (woltPanelElement) {
+      woltPanelElement.remove();
+      woltPanelElement = null;
+    }
+    
+    // Remove the divider
+    if (splitDividerElement) {
+      splitDividerElement.remove();
+      splitDividerElement = null;
+    }
+    
+    // Remove styles
     if (splitStyleElement) {
       splitStyleElement.remove();
       splitStyleElement = null;
     }
-    document.body.classList.remove('cs-split-active');
-    woltPanelElement = null;
+    
+    // Remove class from html
+    document.documentElement.classList.remove('cs-split-active');
+    
+    // Reset any inline styles
+    document.documentElement.style.removeProperty('--cs-split-ratio');
+    document.documentElement.style.removeProperty('--cs-sap-width');
+    document.documentElement.style.removeProperty('--cs-wolt-width');
+    
     splitLayoutActive = false;
     console.log('C@S Content: Split Layout removed');
   }
-  function createWoltPanelHTML(orders) {
-    const count = orders?.length || 0;
-    let cardsHTML = '';
-    if (count === 0) {
-      cardsHTML = '';
-    } else {
-      cardsHTML = orders.map(order => {
-        const now = Date.now();
-        const orderTime = order.timestamp || now;
-        const minutesPending = Math.floor((now - orderTime) / 60000);
-        const isUrgent = minutesPending >= 10;
-        const timeDisplay = minutesPending < 1 ? 'Juuri saapunut' : `${minutesPending} min sitten`;
-        return `
-          <div class="cs-wolt-card ${isUrgent ? 'cs-wolt-card-urgent' : ''}">
-            <div class="cs-wolt-card-header">
-              <span class="cs-wolt-card-order-id">${order.orderId || 'Tilaus'}</span>
-              <span class="cs-wolt-card-time ${isUrgent ? 'cs-wolt-card-time-urgent' : ''}">
-                ⏱ ${timeDisplay}
-              </span>
-            </div>
-            <div class="cs-wolt-card-info">
-              ${order.shippingType ? `<span class="cs-wolt-card-tag">${order.shippingType}</span>` : ''}
-              ${order.customerName ? `<span>${order.customerName}</span>` : ''}
-            </div>
-          </div>
-        `;
-      }).join('');
-    }
-    return `
-      <div class="cs-wolt-cards">
-        ${cardsHTML}
-      </div>
-    `;
-  }
-  function updateWoltPanel(orders) {
-    if (!woltPanelElement) return;
-    woltPanelElement.innerHTML = createWoltPanelHTML(orders);
-  }
+
   function createElement(tag, options = {}) {
     const el = document.createElement(tag);
     if (options.classes) options.classes.forEach(c => el.classList.add(c));
@@ -569,57 +691,8 @@
     }
   }
   
-  async function showSplitPanelAlert(data) {
-    const isWoltOrder = data.orderType === 'wolt';
-    const targetPanel = isWoltOrder ? document.getElementById('cs-wolt-panel') : document.getElementById('cs-sap-panel');
-    
-    if (!targetPanel) {
-      console.warn('Split panel not found, falling back to overlay');
-      closeAlertOverlay();
-      return showAlertOverlay(data);
-    }
-    
-    if (data.soundData && data.soundData.startsWith('data:audio/')) {
-      alertAudio = new Audio(data.soundData);
-      alertAudio.play().catch(e => console.warn('Audio blocked', e));
-    }
-    
-    const settings = await chrome.storage.local.get(['alertDurationSeconds']);
-    let seconds = parseInt(settings.alertDurationSeconds, 10) || 10;
-    const customization = (isWoltOrder && data.woltOverlay) ? data.woltOverlay : data.alertOverlay;
-    
-    const existingAlert = targetPanel.querySelector('.cs-split-alert');
-    if (existingAlert) existingAlert.remove();
-    
-    const alert = createElement('div', { classes: ['cs-split-alert'] });
-    if (isWoltOrder) alert.classList.add('wolt-alert');
-    
-    const counterCard = createElement('div', { classes: ['cs-split-counter'] });
-    counterCard.appendChild(createElement('span', { classes: ['cs-split-count'], text: String(data.count || 1) }));
-    alert.appendChild(counterCard);
-    
-    const title = createElement('div', { classes: ['cs-split-title'], text: isWoltOrder ? 'Wolt-tilausta' : 'Collectia' });
-    alert.appendChild(title);
-    
-    targetPanel.appendChild(alert);
-    requestAnimationFrame(() => { alert.style.opacity = '1'; });
-    
-    setTimeout(() => {
-      alert.style.opacity = '0';
-      setTimeout(() => alert.remove(), 300);
-    }, seconds * 1000);
-  }
-  async function showAlertOverlay(data) {
-    console.log('showAlertOverlay called with data:', data);
-    
-    const splitSettings = await chrome.storage.local.get(['splitModeEnabled']);
-    const isSplitModeActive = splitSettings.splitModeEnabled && splitLayoutActive;
-    
-    if (isSplitModeActive) {
-      showSplitPanelAlert(data);
-      return;
-    }
-    
+  async functi
+    // Always use fullscreen overlay (split mode now uses iframe, not custom panels)
     closeAlertOverlay();
     
     if (data.soundData && data.soundData.startsWith('data:audio/')) {

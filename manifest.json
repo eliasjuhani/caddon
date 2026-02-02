@@ -7,7 +7,8 @@
     "storage",
     "unlimitedStorage",
     "notifications",
-    "alarms"
+    "alarms",
+    "scripting"
   ],
   "host_permissions": [
     "https://launchpad.elkjop.com/*"
@@ -20,7 +21,8 @@
       "matches": ["https://launchpad.elkjop.com/*"],
       "js": ["content.js"],
       "css": ["overlay.css"],
-      "run_at": "document_end"
+      "run_at": "document_end",
+      "all_frames": true
     }
   ],
   "action": {
