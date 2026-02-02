@@ -45,7 +45,7 @@
         callback();
       } else if (attempts >= maxAttempts) {
         clearInterval(checkInterval);
-        console.warn('C@S Content: SAP UI not found after max attempts, skipping layout');
+        // SAP UI not loaded yet - this is normal, just skip silently
       }
     }, 200);
   }
@@ -302,13 +302,68 @@
       currentWoltOldestTimestamp = mergedData.woltOldestTimestamp;
       currentWoltOrders = mergedData.woltOrders;
       
-      // Only send from main frame to avoid duplicates
-      if (!isInIframe) {
+      // If we're in an iframe (split mode right panel), send data to parent
+      if (isInIframe) {
+        try {
+          window.parent.postMessage({ 
+            type: 'COLLECT_STORE_IFRAME_DATA', 
+            data: incomingData,
+            frameId: 'iframe'
+          }, '*');
+        } catch (e) {
+          console.warn('C@S Content: Could not send to parent frame:', e);
+        }
+      } else {
+        // Main frame sends merged data to background
         chrome.runtime.sendMessage({ action: 'updateOrders', data: mergedData }).catch(error => {
           console.warn('C@S Content: Extension context invalidated, ignoring:', error.message);
         });
       }
     }
+    
+    // Handle data from iframe content script (in split mode)
+    if (!isInIframe && event.data?.type === 'COLLECT_STORE_IFRAME_DATA') {
+      const incomingData = event.data.data || {};
+      
+      console.log('C@S Content: Received data from iframe:', incomingData);
+      
+      // Update iframe data
+      iframeData = {
+        collectCount: incomingData.collectCount || 0,
+        woltCount: incomingData.woltCount || 0,
+        collectOldestTimestamp: incomingData.oldestOrderTimestamp || null,
+        woltOldestTimestamp: incomingData.woltOldestTimestamp || null,
+        woltOrders: incomingData.woltOrders || []
+      };
+      
+      // Merge and send to background
+      const mergedData = {
+        collectCount: Math.max(mainFrameData.collectCount, iframeData.collectCount),
+        woltCount: Math.max(mainFrameData.woltCount, iframeData.woltCount),
+        oldestOrderTimestamp: [mainFrameData.collectOldestTimestamp, iframeData.collectOldestTimestamp]
+          .filter(t => t !== null)
+          .sort((a, b) => a - b)[0] || null,
+        woltOldestTimestamp: [mainFrameData.woltOldestTimestamp, iframeData.woltOldestTimestamp]
+          .filter(t => t !== null)
+          .sort((a, b) => a - b)[0] || null,
+        woltOrders: [...mainFrameData.woltOrders, ...iframeData.woltOrders],
+        storeName: '',
+        pendingOrders: []
+      };
+      
+      currentOrderCount = mergedData.collectCount;
+      currentOldestTimestamp = mergedData.oldestOrderTimestamp;
+      currentWoltCount = mergedData.woltCount;
+      currentWoltOldestTimestamp = mergedData.woltOldestTimestamp;
+      currentWoltOrders = mergedData.woltOrders;
+      
+      console.log('C@S Content: Merged data after iframe update:', mergedData);
+      
+      chrome.runtime.sendMessage({ action: 'updateOrders', data: mergedData }).catch(error => {
+        console.warn('C@S Content: Extension context invalidated, ignoring:', error.message);
+      });
+    }
+    
     if (event.source === window && event.data?.type === 'COLLECT_STORE_READY') {
       console.log('C@S Content: Received READY signal from inject.js, frameId:', event.data.frameId);
       injectScriptReady = true;
@@ -395,26 +450,21 @@
         .sapUshellAnchorNavigationBar,
         .sapUshellNavigationBar {
           display: none !important;
-        }
-        
-        /* Force full viewport */
-        body, html {
-          margin: 0 !important;
-          padding: 0 !important;
-          width: 100vw !important;
-          height: 100vh !important;
+          visibility: hidden !important;
+          height: 0 !important;
           overflow: hidden !important;
-          background: white !important;
         }
         
-        /* Main canvas container */
+        /* Main canvas container - use absolute instead of fixed to work with split mode */
         #canvas,
         .sapUshellShellCanvas {
-          position: fixed !important;
+          position: absolute !important;
           top: 0 !important;
           left: 0 !important;
-          width: 100vw !important;
-          height: 100vh !important;
+          right: 0 !important;
+          bottom: 0 !important;
+          width: 100% !important;
+          height: 100% !important;
           margin: 0 !important;
           padding: 0 !important;
           display: flex !important;
@@ -443,7 +493,7 @@
       `;
       document.head.appendChild(zenModeStyleElement);
       
-      // Use JavaScript to aggressively hide shell elements and fix layout
+      // Use JavaScript to aggressively hide shell elements
       const hideElements = () => {
         // Hide header/navigation
         const selectors = [
@@ -466,14 +516,16 @@
           });
         });
         
-        // Force canvas to full screen with flex layout
+        // Apply layout to canvas
         const canvas = document.querySelector('#canvas') || document.querySelector('.sapUshellShellCanvas');
         if (canvas) {
-          canvas.style.position = 'fixed';
+          canvas.style.position = 'absolute';
           canvas.style.top = '0';
           canvas.style.left = '0';
-          canvas.style.width = '100vw';
-          canvas.style.height = '100vh';
+          canvas.style.right = '0';
+          canvas.style.bottom = '0';
+          canvas.style.width = '100%';
+          canvas.style.height = '100%';
           canvas.style.margin = '0';
           canvas.style.padding = '0';
           canvas.style.display = 'flex';
@@ -498,16 +550,14 @@
           footer.style.margin = '0';
           footer.style.flexShrink = '0';
         }
-        
-        // Remove body background
-        document.body.style.background = 'white';
-        document.documentElement.style.background = 'white';
       };
       
       // Apply immediately and watch for DOM changes
       hideElements();
       setTimeout(hideElements, 100);
       setTimeout(hideElements, 500);
+      setTimeout(hideElements, 1000);
+      setTimeout(hideElements, 2000);
       
       // Set up observer to catch dynamically added elements
       const observer = new MutationObserver(hideElements);
@@ -523,14 +573,18 @@
         zenModeStyleElement.remove();
         zenModeStyleElement = null;
         
-        // Restore canvas position
+        // Restore canvas styles
         const canvas = document.querySelector('#canvas') || document.querySelector('.sapUshellShellCanvas');
         if (canvas) {
           canvas.style.removeProperty('position');
           canvas.style.removeProperty('top');
           canvas.style.removeProperty('left');
+          canvas.style.removeProperty('right');
+          canvas.style.removeProperty('bottom');
           canvas.style.removeProperty('width');
           canvas.style.removeProperty('height');
+          canvas.style.removeProperty('display');
+          canvas.style.removeProperty('flex-direction');
         }
         
         console.log('C@S Content: Zen Mode disabled');

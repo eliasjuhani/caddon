@@ -91,6 +91,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           });
           break;
           
+        case 'getDashboardData':
+          const dashboardData = await getDashboardData();
+          sendResponse({ success: true, data: dashboardData });
+          break;
+          
         default:
           console.warn('Collect@Store Background: Unknown action:', message.action);
           sendResponse({ success: false, error: 'Unknown action' });
@@ -233,8 +238,8 @@ async function handleOrderUpdate(data) {
 async function showSystemNotification(totalCount, newCount, orderType = 'collect') {
   try {
     const isWolt = orderType === 'wolt';
-    const title = isWolt ? 'Uusia Wolt/Express tilauksia!' : 'Uusia tilauksia!';
-    const typeLabel = isWolt ? 'Wolt/Express' : 'Collect@Store';
+    const title = isWolt ? 'Uusia Wolt tilauksia!' : 'Uusia tilauksia!';
+    const typeLabel = isWolt ? 'Wolt' : 'Collect@Store';
     
     await chrome.notifications.create({
       type: 'basic',
@@ -286,8 +291,8 @@ async function showContentAlert(totalCount, newCount, orderType = 'collect') {
     if (isWolt) {
       alertOverlay = {
         ...alertOverlay,
-        mainTitle: 'Wolt Express!',
-        subTitle: 'Pikatilaus saapunut!',
+        mainTitle: 'Wolt!',
+        subTitle: 'Tilaus saapunut!',
         brandTag: 'WOLT'
       };
     }
@@ -322,3 +327,43 @@ async function showContentAlert(totalCount, newCount, orderType = 'collect') {
 
 }
 
+/**
+ * Get dashboard data for real-time monitoring
+ */
+async function getDashboardData() {
+  try {
+    const storage = await chrome.storage.local.get(['collectCount', 'woltCount', 'pendingOrders']);
+    
+    const collectCount = parseInt(storage.collectCount, 10) || 0;
+    const woltCount = parseInt(storage.woltCount, 10) || 0;
+    const totalCount = collectCount + woltCount;
+    const pendingOrders = storage.pendingOrders || [];
+    
+    // Find oldest order
+    let oldestOrderTime = null;
+    if (pendingOrders.length > 0) {
+      const timestamps = pendingOrders
+        .map(order => order.timestamp)
+        .filter(t => t && !isNaN(t));
+      
+      if (timestamps.length > 0) {
+        oldestOrderTime = Math.min(...timestamps);
+      }
+    }
+    
+    return {
+      collectCount,
+      woltCount,
+      totalCount,
+      oldestOrderTime
+    };
+  } catch (error) {
+    console.error('Collect@Store Background: Error getting dashboard data:', error);
+    return {
+      collectCount: 0,
+      woltCount: 0,
+      totalCount: 0,
+      oldestOrderTime: null
+    };
+  }
+}

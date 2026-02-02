@@ -33,7 +33,7 @@
   },
   "web_accessible_resources": [
     {
-      "resources": ["inject.js", "alert.html", "icon.png", "overlay.css", "idb.js"],
+      "resources": ["inject.js", "alert.html", "icon.png", "overlay.css", "idb.js", "dashboard.html", "dashboard.css", "dashboard.js"],
       "matches": ["<all_urls>"]
     }
   ]

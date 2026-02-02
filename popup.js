@@ -1,14 +1,14 @@
 (function() {
   'use strict';
 
-  let orderCountEl, lastCheckEl, statusBadge, refreshBtn, openLaunchpadBtn, 
+  let orderCountEl, lastCheckEl, statusBadge, refreshBtn, 
       pollIntervalInput, alertDurationInput, soundEnabledInput,
       connectionDot, connectionText, soundFileInput, imageFileInput, 
       soundFileName, imageFileName, testAlertBtn, woltCountEl;
 
   let woltSoundFileInput, woltImageFileInput, woltSoundFileName, woltImageFileName;
   
-  let zenModeEnabled, splitModeEnabled;
+  let splitModeEnabled;
   
   let monitorFrame, monitorLeft, monitorRight, monitorDivider;
   let splitRatioLeft, splitRatioRight;
@@ -62,7 +62,6 @@
       lastCheckEl = document.getElementById('last-check');
       statusBadge = document.getElementById('status-badge');
       refreshBtn = document.getElementById('refresh-btn');
-      openLaunchpadBtn = document.getElementById('open-launchpad');
       pollIntervalInput = document.getElementById('poll-interval');
       alertDurationInput = document.getElementById('alert-duration');
       soundEnabledInput = document.getElementById('sound-enabled');
@@ -80,7 +79,6 @@
       woltSoundFileName = document.getElementById('wolt-sound-file-name');
       woltImageFileName = document.getElementById('wolt-image-file-name');
       
-      zenModeEnabled = document.getElementById('zen-mode-enabled');
       splitModeEnabled = document.getElementById('split-mode-enabled');
       
       monitorFrame = document.getElementById('monitor-frame');
@@ -228,8 +226,11 @@
 
   function setupEventListeners() {
     if (refreshBtn) refreshBtn.addEventListener('click', handleRefreshClick);
-    if (openLaunchpadBtn) openLaunchpadBtn.addEventListener('click', () => {
-      chrome.tabs.create({ url: 'https://launchpad.elkjop.com/neptune/webapp/ZELK_PICK_PACK' });
+    
+    // Dashboard button
+    const dashboardBtn = document.getElementById('dashboard-btn');
+    if (dashboardBtn) dashboardBtn.addEventListener('click', () => {
+      chrome.tabs.create({ url: chrome.runtime.getURL('dashboard.html') });
     });
     
     if (pollIntervalInput) {
@@ -254,7 +255,6 @@
     if (woltSoundFileInput) woltSoundFileInput.addEventListener('change', (e) => handleFileChange(e, 'woltSoundData', 'woltSoundFileName', woltSoundFileName, 'audio'));
     if (woltImageFileInput) woltImageFileInput.addEventListener('change', (e) => handleFileChange(e, 'woltImageData', 'woltImageFileName', woltImageFileName, 'image'));
     
-    if (zenModeEnabled) zenModeEnabled.addEventListener('change', saveSplitSettingsAndApply);
     if (splitModeEnabled) {
       splitModeEnabled.addEventListener('change', () => {
         saveSplitSettingsAndApply();
@@ -383,8 +383,7 @@
           action: 'applySplit', 
           data: { 
             splitRatio: currentSplitRatio,
-            splitModeEnabled: splitModeEnabled?.checked || false,
-            zenModeEnabled: zenModeEnabled?.checked || false
+            splitModeEnabled: splitModeEnabled?.checked || false
           } 
         });
       }
@@ -560,13 +559,12 @@
 
   async function loadSplitSettings() {
     try {
-      const settings = await chrome.storage.local.get(['splitRatio', 'splitModeEnabled', 'zenModeEnabled']);
+      const settings = await chrome.storage.local.get(['splitRatio', 'splitModeEnabled']);
       
       currentSplitRatio = settings.splitRatio || 50;
       updateSplitVisual(currentSplitRatio);
       
       if (splitModeEnabled) splitModeEnabled.checked = settings.splitModeEnabled || false;
-      if (zenModeEnabled) zenModeEnabled.checked = settings.zenModeEnabled || false;
     } catch (error) {
       console.error('Popup: Failed to load split settings:', error);
     }
@@ -576,8 +574,7 @@
     try {
       const settings = {
         splitRatio: currentSplitRatio,
-        splitModeEnabled: splitModeEnabled?.checked || false,
-        zenModeEnabled: zenModeEnabled?.checked || false
+        splitModeEnabled: splitModeEnabled?.checked || false
       };
       
       await chrome.storage.local.set(settings);

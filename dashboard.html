@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="fi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Collektit ja Woltit</title>
+  <link rel="stylesheet" href="dashboard.css">
+  <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800;900&display=swap" rel="stylesheet">
+</head>
+<body>
+  <div class="background-shapes">
+    <div class="shape shape-1"></div>
+    <div class="shape shape-2"></div>
+    <div class="shape shape-3"></div>
+  </div>
+
+  <div class="dashboard-container">
+    <header class="header">
+      <h1 class="title">Collektit ja Woltit</h1>
+      <div class="status-pill" id="statusBadge">
+        <span class="status-dot" id="statusIndicator"></span>
+        <span class="status-text" id="statusText"></span>
+      </div>
+    </header>
+
+    <div class="cards-wrapper">
+      <div class="cards-container">
+        <!-- Collect Card -->
+        <div class="card" id="collectCard">
+          <div class="card-header">
+            <span class="card-title">COLLECT</span>
+          </div>
+          <div class="card-body">
+            <span class="count collect-count" id="collectCount">0</span>
+            <span class="count-change" id="collectChange"></span>
+          </div>
+        </div>
+
+        <!-- Divider -->
+        <div class="card-divider"></div>
+
+        <!-- Wolt Card -->
+        <div class="card" id="woltCard">
+          <div class="card-header">
+            <span class="card-title">WOLT</span>
+          </div>
+          <div class="card-body">
+            <span class="count wolt-count" id="woltCount">0</span>
+            <span class="count-change" id="woltChange"></span>
+          </div>
+        </div>
+      </div>
+      
+      <!-- Refresh Button -->
+      <button class="refresh-btn-main" id="refreshBtn" title="Päivitä">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M23 4v6h-6M1 20v-6h6M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/>
+        </svg>
+        <span>Päivitä</span>
+      </button>
+    </div>
+
+  </div>
+
+  <!-- Fullscreen Mascot Background -->
+  <div class="mascot-fullscreen">
+    <img src="https://discovery-cdn.wolt.com/content_editor/articles/images/2669b00e-883f-11ed-9e29-fa2d83bd4d70_1f73b9f9_305c_4033_bb48_4ddd0914b023.avif" alt="Wolt Mascot" class="mascot-img">
+  </div>
+
+  <script src="dashboard.js"></script>
+</body>
+</html>

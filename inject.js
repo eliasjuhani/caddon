@@ -337,8 +337,6 @@
     return originalSend.apply(this, arguments);
   };
   
-  // Only auto-refresh on main frame, not in iframe (iframe will be manually refreshed)
-  if (!isInIframe) {
-    setTimeout(clickRefreshButton, 3000);
-  }
+  // Auto-refresh on both main frame and iframe (needed for split mode)
+  setTimeout(clickRefreshButton, 3000);
 })();
