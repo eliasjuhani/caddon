@@ -691,7 +691,15 @@
     }
   }
   
-  async functi
+  async function showAlertOverlay(data) {
+    // Don't show alert overlays in iframe - main frame handles it
+    if (isInIframe) {
+      console.log('C@S Content: Skipping alert overlay in iframe');
+      return;
+    }
+    
+    console.log('showAlertOverlay called with data:', data);
+    
     // Always use fullscreen overlay (split mode now uses iframe, not custom panels)
     closeAlertOverlay();
     
