@@ -785,7 +785,12 @@
     }
     const bgLayer = createElement('div', { classes: ['cs-bg-layer'] });
     let hasMedia = false;
+    
+    console.log('Media check - videoData:', data.videoData ? 'present' : 'missing');
+    console.log('Media check - imageData:', data.imageData ? 'present' : 'missing');
+    
     if (data.videoData && data.videoData.startsWith('data:video/')) {
+      console.log('Creating video element');
       const vid = createElement('video', { 
         classes: ['cs-media'], 
         attrs: { autoplay: '', loop: '', playsinline: '', muted: '' } 
@@ -793,9 +798,14 @@
       vid.src = data.videoData;
       bgLayer.appendChild(vid);
       hasMedia = true;
+      // Ensure video plays (some browsers block autoplay)
+      vid.play().catch(e => console.warn('Video autoplay blocked', e));
     } else if (data.imageData && data.imageData.startsWith('data:image/')) {
+      console.log('Creating image element');
       const img = createElement('img', { classes: ['cs-media'] });
       img.src = data.imageData;
+      img.onload = () => console.log('Image loaded successfully');
+      img.onerror = (e) => console.error('Image failed to load', e);
       bgLayer.appendChild(img);
       hasMedia = true;
     }
@@ -847,9 +857,13 @@
     requestAnimationFrame(() => { overlay.style.opacity = '1'; });
     const totalSeconds = seconds;
     let remaining = seconds;
+    
+    // Set initial progress bar to 100%
+    bar.style.width = '100%';
+    
     alertCountdownInterval = setInterval(() => {
       remaining--;
-      const pct = (remaining / totalSeconds) * 100;
+      const pct = Math.max(0, (remaining / totalSeconds) * 100);
       bar.style.width = `${pct}%`;
       if (remaining <= 0) {
         clearInterval(alertCountdownInterval);
