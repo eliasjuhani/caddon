@@ -5,7 +5,7 @@
   // Detect if running inside an iframe
   const isInIframe = window.self !== window.top;
   
-  console.log('C@S Content: Script loaded v6.2 (Split View)', isInIframe ? '[IFRAME]' : '[MAIN]');
+  console.log('C@S Content: Script loaded v6.3 (Split View Fixed)', isInIframe ? '[IFRAME]' : '[MAIN]');
   
   let pollInterval = null;
   let injected = false;
@@ -22,8 +22,8 @@
   let splitStyleElement = null;
   let currentWoltOrders = [];
   
-  // Track data from both frames separately
-  let mainFrameData = { collectCount: 0, woltCount: 0, collectOldestTimestamp: null, woltOldestTimestamp: null, woltOrders: [] };
+  // Track data from iframes (in split mode, main page is hidden so only iframes report data)
+  // We only use ONE iframe for data (left iframe) to avoid flickering
   let iframeData = { collectCount: 0, woltCount: 0, collectOldestTimestamp: null, woltOldestTimestamp: null, woltOrders: [] };
   
   // Store drag event handlers for cleanup
@@ -247,76 +247,53 @@
     
     window.postMessage({ type: 'COLLECT_STORE_TRIGGER_REFRESH' }, '*');
   }
+  // Check if this iframe is the display-only one (should not send data)
+  const urlParams = new URLSearchParams(window.location.search);
+  const splitRole = urlParams.get('cs-split-role');
+  const isDisplayOnlyIframe = isInIframe && splitRole === 'display';
+  
   window.addEventListener('message', (event) => {
+    // Handle data from inject.js (same window) - this runs in IFRAMES
     if (event.source === window && event.data?.type === 'COLLECT_STORE_DATA') {
       lastSuccessfulPoll = Date.now();
-      
-      // Store data based on which frame it came from
-      const frameId = event.data.frameId || 'main';
       const incomingData = event.data.data || {};
       
-      if (frameId === 'main') {
-        mainFrameData = {
-          collectCount: incomingData.collectCount || 0,
-          woltCount: incomingData.woltCount || 0,
-          collectOldestTimestamp: incomingData.oldestOrderTimestamp || null,
-          woltOldestTimestamp: incomingData.woltOldestTimestamp || null,
-          woltOrders: incomingData.woltOrders || []
-        };
-      } else if (frameId === 'iframe') {
-        iframeData = {
-          collectCount: incomingData.collectCount || 0,
-          woltCount: incomingData.woltCount || 0,
-          collectOldestTimestamp: incomingData.oldestOrderTimestamp || null,
-          woltOldestTimestamp: incomingData.woltOldestTimestamp || null,
-          woltOrders: incomingData.woltOrders || []
-        };
+      // Update local state
+      currentOrderCount = incomingData.collectCount || 0;
+      currentOldestTimestamp = incomingData.oldestOrderTimestamp || null;
+      currentWoltCount = incomingData.woltCount || 0;
+      currentWoltOldestTimestamp = incomingData.woltOldestTimestamp || null;
+      currentWoltOrders = incomingData.woltOrders || [];
+      
+      // If we're in the display-only iframe, don't send data (avoid duplicates)
+      if (isDisplayOnlyIframe) {
+        return;
       }
       
-      // Merge data from both frames - take the maximum count from either frame
-      const mergedData = {
-        collectCount: Math.max(mainFrameData.collectCount, iframeData.collectCount),
-        woltCount: Math.max(mainFrameData.woltCount, iframeData.woltCount),
-        oldestOrderTimestamp: [mainFrameData.collectOldestTimestamp, iframeData.collectOldestTimestamp]
-          .filter(t => t !== null)
-          .sort((a, b) => a - b)[0] || null,
-        woltOldestTimestamp: [mainFrameData.woltOldestTimestamp, iframeData.woltOldestTimestamp]
-          .filter(t => t !== null)
-          .sort((a, b) => a - b)[0] || null,
-        woltOrders: [...mainFrameData.woltOrders, ...iframeData.woltOrders],
-        storeName: '',
-        pendingOrders: []
-      };
-      
-      // Update local state
-      currentOrderCount = mergedData.collectCount;
-      currentOldestTimestamp = mergedData.oldestOrderTimestamp;
-      currentWoltCount = mergedData.woltCount;
-      currentWoltOldestTimestamp = mergedData.woltOldestTimestamp;
-      currentWoltOrders = mergedData.woltOrders;
-      
-      // If we're in an iframe (split mode right panel), send data to parent
+      // If we're in an iframe (primary role), send data to parent window
       if (isInIframe) {
         try {
           window.parent.postMessage({ 
             type: 'COLLECT_STORE_IFRAME_DATA', 
-            data: incomingData,
-            frameId: 'iframe'
+            data: incomingData
           }, '*');
         } catch (e) {
           console.warn('C@S Content: Could not send to parent frame:', e);
         }
       } else {
-        // Main frame sends merged data to background
-        chrome.runtime.sendMessage({ action: 'updateOrders', data: mergedData }).catch(error => {
+        // Not in iframe (normal mode without split) - send directly to background
+        chrome.runtime.sendMessage({ action: 'updateOrders', data: incomingData }).catch(error => {
           console.warn('C@S Content: Extension context invalidated, ignoring:', error.message);
         });
       }
     }
     
+    // Handle data from iframes (this runs in MAIN window when split mode is active)
     if (!isInIframe && event.data?.type === 'COLLECT_STORE_IFRAME_DATA') {
+      lastSuccessfulPoll = Date.now();
       const incomingData = event.data.data || {};
       
+      // Store iframe data
       iframeData = {
         collectCount: incomingData.collectCount || 0,
         woltCount: incomingData.woltCount || 0,
@@ -325,28 +302,25 @@
         woltOrders: incomingData.woltOrders || []
       };
       
-      // Merge and send to background
-      const mergedData = {
-        collectCount: Math.max(mainFrameData.collectCount, iframeData.collectCount),
-        woltCount: Math.max(mainFrameData.woltCount, iframeData.woltCount),
-        oldestOrderTimestamp: [mainFrameData.collectOldestTimestamp, iframeData.collectOldestTimestamp]
-          .filter(t => t !== null)
-          .sort((a, b) => a - b)[0] || null,
-        woltOldestTimestamp: [mainFrameData.woltOldestTimestamp, iframeData.woltOldestTimestamp]
-          .filter(t => t !== null)
-          .sort((a, b) => a - b)[0] || null,
-        woltOrders: [...mainFrameData.woltOrders, ...iframeData.woltOrders],
+      // Update local state from iframe
+      currentOrderCount = iframeData.collectCount;
+      currentOldestTimestamp = iframeData.collectOldestTimestamp;
+      currentWoltCount = iframeData.woltCount;
+      currentWoltOldestTimestamp = iframeData.woltOldestTimestamp;
+      currentWoltOrders = iframeData.woltOrders;
+      
+      // Send to background
+      const dataToSend = {
+        collectCount: iframeData.collectCount,
+        woltCount: iframeData.woltCount,
+        oldestOrderTimestamp: iframeData.collectOldestTimestamp,
+        woltOldestTimestamp: iframeData.woltOldestTimestamp,
+        woltOrders: iframeData.woltOrders,
         storeName: '',
         pendingOrders: []
       };
       
-      currentOrderCount = mergedData.collectCount;
-      currentOldestTimestamp = mergedData.oldestOrderTimestamp;
-      currentWoltCount = mergedData.woltCount;
-      currentWoltOldestTimestamp = mergedData.woltOldestTimestamp;
-      currentWoltOrders = mergedData.woltOrders;
-      
-      chrome.runtime.sendMessage({ action: 'updateOrders', data: mergedData }).catch(error => {
+      chrome.runtime.sendMessage({ action: 'updateOrders', data: dataToSend }).catch(error => {
         console.warn('C@S Content: Extension context invalidated, ignoring:', error.message);
       });
     }
@@ -514,9 +488,15 @@
         --cs-wolt-width: ${100 - ratio}%;
       }
       
-      /* Hide original page content */
-      html.cs-split-active body > *:not(#cs-split-container):not(script):not(style):not(link) {
+      /* Hide original page content BUT NOT alert overlays */
+      html.cs-split-active body > *:not(#cs-split-container):not(#cs-modern-overlay):not(script):not(style):not(link) {
         display: none !important;
+      }
+      
+      /* Make sure alert overlay is always visible and on top */
+      html.cs-split-active #cs-modern-overlay {
+        display: flex !important;
+        z-index: 2147483647 !important;
       }
       
       /* The split container takes full screen */
@@ -563,11 +543,25 @@
     const splitContainer = document.createElement('div');
     splitContainer.id = 'cs-split-container';
     
+    // Build URLs - left iframe sends data, right iframe is display-only
+    const baseUrl = window.location.href.split('?')[0];
+    const existingParams = new URLSearchParams(window.location.search);
+    
+    // Left iframe - primary data source
+    const leftParams = new URLSearchParams(existingParams);
+    leftParams.set('cs-split-role', 'primary');
+    const leftUrl = baseUrl + '?' + leftParams.toString();
+    
+    // Right iframe - display only (no data sending)
+    const rightParams = new URLSearchParams(existingParams);
+    rightParams.set('cs-split-role', 'display');
+    const rightUrl = baseUrl + '?' + rightParams.toString();
+    
     // Create left panel with iframe
     const leftPanel = document.createElement('div');
     leftPanel.id = 'cs-split-left';
     const leftIframe = document.createElement('iframe');
-    leftIframe.src = window.location.href;
+    leftIframe.src = leftUrl;
     leftIframe.id = 'cs-split-iframe-left';
     leftPanel.appendChild(leftIframe);
     
@@ -575,7 +569,7 @@
     const rightPanel = document.createElement('div');
     rightPanel.id = 'cs-split-right';
     const rightIframe = document.createElement('iframe');
-    rightIframe.src = window.location.href;
+    rightIframe.src = rightUrl;
     rightIframe.id = 'cs-split-iframe-right';
     rightPanel.appendChild(rightIframe);
     
