@@ -1,8 +1,3 @@
-/**
- * Dashboard Script - Real-time order monitoring
- * @version 3.0
- */
-
 (function() {
   'use strict';
 

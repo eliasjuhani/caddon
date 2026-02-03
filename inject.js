@@ -21,7 +21,6 @@
     woltCodes: ['express', 'adhoc', 'fast', 'wolt', 'exp']
   };
   window.postMessage({ type: 'COLLECT_STORE_READY', frameId }, '*');
-  console.log('C@S Inject: Script ready, frameId:', frameId);
   window.addEventListener('message', handleMessage);
   function handleMessage(event) {
     if (event.source !== window) return;
@@ -31,7 +30,6 @@
     if (event.data && event.data.type === 'COLLECT_STORE_CONFIG_UPDATE') {
       if (event.data.config) {
         CONFIG = { ...CONFIG, ...event.data.config };
-        console.log('C@S Inject: Configuration updated', CONFIG);
       }
     }
     if (event.data && event.data.type === 'COLLECT_STORE_OPEN_EXPRESS') {
@@ -293,9 +291,6 @@
       }
       const collectCount = collectOrders.size;
       const woltCount = woltOrders.size;
-      console.log(`C@S: Found ${collectCount} pending Collect orders, ${woltCount} pending Wolt/Express orders`);
-      console.log(`C@S: Collect oldest: ${collectOldestTimestamp ? new Date(collectOldestTimestamp).toISOString() : 'N/A'}`);
-      console.log(`C@S: Wolt oldest: ${woltOldestTimestamp ? new Date(woltOldestTimestamp).toISOString() : 'N/A'}`);
       return { 
         collectCount, 
         collectOldestTimestamp,

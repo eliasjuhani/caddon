@@ -16,7 +16,7 @@
 body {
   font-family: 'Nunito', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   min-height: 100vh;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 40%, #00C2E0 100%);
+  background: linear-gradient(135deg, #667eea 0%, #ffffff 40%, #00C2E0 100%);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -375,13 +375,13 @@ body {
   height: 100vh;
   pointer-events: none;
   z-index: 0;
-  opacity: 0.4;
+  opacity: 1;
   animation: mascotFade 1.2s ease-out 0.3s both;
 }
 
 @keyframes mascotFade {
   from { opacity: 0; }
-  to { opacity: 0.4; }
+  to { opacity: 0.60; }
 }
 
 .mascot-fullscreen .mascot-img {

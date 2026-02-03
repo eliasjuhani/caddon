@@ -41,7 +41,6 @@
       
       if (sapContainer) {
         clearInterval(checkInterval);
-        console.log('C@S Content: SAP UI found, applying layout');
         callback();
       } else if (attempts >= maxAttempts) {
         clearInterval(checkInterval);
@@ -217,7 +216,6 @@
   }
   async function sendConfigToInject() {
     if (!injectScriptReady) {
-      console.log('C@S Content: Inject script not ready yet, skipping config send');
       return;
     }
     try {
@@ -232,18 +230,13 @@
             shippingKeywords: response.config.shippingKeywords
           }
         }, '*');
-        console.log('C@S Content: Config sent to inject script');
       }
     } catch (error) {
-      console.warn('C@S Content: Could not send config to inject:', error);
+      console.warn('C@S Content: Could not send config:', error);
     }
   }
   function triggerPageRefresh() {
-    console.log('C@S Content: Triggering page refresh, injectScriptReady:', injectScriptReady);
-    
     if (!injectScriptReady) {
-      // Inject script not ready yet, try to inject it again
-      console.log('C@S Content: Inject script not ready, re-injecting...');
       injectPageScript();
       // Retry after a short delay
       setTimeout(() => {
@@ -321,13 +314,9 @@
       }
     }
     
-    // Handle data from iframe content script (in split mode)
     if (!isInIframe && event.data?.type === 'COLLECT_STORE_IFRAME_DATA') {
       const incomingData = event.data.data || {};
       
-      console.log('C@S Content: Received data from iframe:', incomingData);
-      
-      // Update iframe data
       iframeData = {
         collectCount: incomingData.collectCount || 0,
         woltCount: incomingData.woltCount || 0,
@@ -357,15 +346,12 @@
       currentWoltOldestTimestamp = mergedData.woltOldestTimestamp;
       currentWoltOrders = mergedData.woltOrders;
       
-      console.log('C@S Content: Merged data after iframe update:', mergedData);
-      
       chrome.runtime.sendMessage({ action: 'updateOrders', data: mergedData }).catch(error => {
         console.warn('C@S Content: Extension context invalidated, ignoring:', error.message);
       });
     }
     
     if (event.source === window && event.data?.type === 'COLLECT_STORE_READY') {
-      console.log('C@S Content: Received READY signal from inject.js, frameId:', event.data.frameId);
       injectScriptReady = true;
       sendConfigToInject();
     }
@@ -433,175 +419,90 @@
     return true;
   });
   function applyZenMode(enabled) {
+    console.log('C@S Content: applyZenMode called with enabled =', enabled);
+    
     if (enabled) {
-      if (zenModeStyleElement) return;
+      if (zenModeStyleElement) {
+        return;
+      }
       
-      // Add aggressive CSS
+      // Aggressive CSS - hide ALL SAP navigation and maximize content area
       zenModeStyleElement = document.createElement('style');
       zenModeStyleElement.id = 'cs-zen-mode-styles';
       zenModeStyleElement.textContent = `
-        /* Hide all shell chrome */
+        /* Hide ALL top navigation and headers */
+        div#toolTopMenu,
+        div#screenMenu,
+        div#topCenterMenu,
         #shell-header,
-        [id*="shell-hdr"],
-        #shell-toolArea,
         .sapUshellShellHead,
-        .sapUshellShellHeader,
+        #shell-hdr,
+        .sapMPageHeader,
+        .sapMBar-CTX:not(.sapMPageFooter .sapMBar-CTX),
         .sapUshellShellHeadItm,
-        .sapUshellAnchorNavigationBar,
-        .sapUshellNavigationBar {
+        .sapUshellShellHeadSearchContainer {
           display: none !important;
           visibility: hidden !important;
           height: 0 !important;
           overflow: hidden !important;
         }
         
-        /* Main canvas container - use absolute instead of fixed to work with split mode */
-        #canvas,
-        .sapUshellShellCanvas {
-          position: absolute !important;
+        /* Hide side navigation/menu */
+        #shell-split-view,
+        #shell-str-view,
+        .sapUshellShellCntnt > div:first-child {
+          display: none !important;
+        }
+        
+        /* Force main content to fill entire viewport */
+        section[id*="pageOrderView-cont"],
+        section[id*="PageMain-cont"],
+        .sapMPage:not(.sapMMessagePage) {
+          position: fixed !important;
           top: 0 !important;
           left: 0 !important;
           right: 0 !important;
           bottom: 0 !important;
-          width: 100% !important;
-          height: 100% !important;
+          width: 100vw !important;
+          height: 100vh !important;
           margin: 0 !important;
           padding: 0 !important;
-          display: flex !important;
-          flex-direction: column !important;
+          z-index: 100 !important;
         }
         
-        /* Page content section - expand to fill */
-        .sapMPageEnableScrolling,
-        section[id*="pageSearch-cont"],
-        section[id*="cont"] {
-          flex: 1 !important;
-          width: 100% !important;
-          height: auto !important;
-          margin: 0 !important;
+        /* Ensure page shell doesn't add margins */
+        #pageShell,
+        div#pageShell {
           padding: 0 !important;
-          background: white !important;
+          margin: 0 !important;
         }
         
-        /* Footer - keep at bottom */
-        .sapMPageFooter,
-        footer {
+        /* Keep footer visible at bottom with refresh button */
+        .sapMPageFooter {
+          position: fixed !important;
+          bottom: 0 !important;
+          left: 0 !important;
           width: 100% !important;
-          margin: 0 !important;
-          flex-shrink: 0 !important;
+          z-index: 101 !important;
         }
       `;
       document.head.appendChild(zenModeStyleElement);
-      
-      // Use JavaScript to aggressively hide shell elements
-      const hideElements = () => {
-        // Hide header/navigation
-        const selectors = [
-          '#shell-header',
-          '[id*="shell-hdr"]',
-          '#shell-toolArea',
-          '.sapUshellShellHead',
-          '.sapUshellShellHeader',
-          '.sapUshellAnchorNavigationBar',
-          '.sapUshellNavigationBar'
-        ];
-        
-        selectors.forEach(selector => {
-          document.querySelectorAll(selector).forEach(el => {
-            el.style.display = 'none';
-            el.style.visibility = 'hidden';
-            el.style.height = '0';
-            el.style.width = '0';
-            el.style.overflow = 'hidden';
-          });
-        });
-        
-        // Apply layout to canvas
-        const canvas = document.querySelector('#canvas') || document.querySelector('.sapUshellShellCanvas');
-        if (canvas) {
-          canvas.style.position = 'absolute';
-          canvas.style.top = '0';
-          canvas.style.left = '0';
-          canvas.style.right = '0';
-          canvas.style.bottom = '0';
-          canvas.style.width = '100%';
-          canvas.style.height = '100%';
-          canvas.style.margin = '0';
-          canvas.style.padding = '0';
-          canvas.style.display = 'flex';
-          canvas.style.flexDirection = 'column';
-        }
-        
-        // Fix page content section
-        const pageSection = document.querySelector('.sapMPageEnableScrolling') || 
-                           document.querySelector('[id*="pageSearch-cont"]');
-        if (pageSection) {
-          pageSection.style.flex = '1';
-          pageSection.style.width = '100%';
-          pageSection.style.margin = '0';
-          pageSection.style.padding = '0';
-          pageSection.style.background = 'white';
-        }
-        
-        // Fix footer
-        const footer = document.querySelector('.sapMPageFooter');
-        if (footer) {
-          footer.style.width = '100%';
-          footer.style.margin = '0';
-          footer.style.flexShrink = '0';
-        }
-      };
-      
-      // Apply immediately and watch for DOM changes
-      hideElements();
-      setTimeout(hideElements, 100);
-      setTimeout(hideElements, 500);
-      setTimeout(hideElements, 1000);
-      setTimeout(hideElements, 2000);
-      
-      // Set up observer to catch dynamically added elements
-      const observer = new MutationObserver(hideElements);
-      observer.observe(document.body, { childList: true, subtree: true });
-      zenModeStyleElement._observer = observer;
-      
       console.log('C@S Content: Zen Mode enabled');
     } else {
       if (zenModeStyleElement) {
-        if (zenModeStyleElement._observer) {
-          zenModeStyleElement._observer.disconnect();
-        }
         zenModeStyleElement.remove();
         zenModeStyleElement = null;
-        
-        // Restore canvas styles
-        const canvas = document.querySelector('#canvas') || document.querySelector('.sapUshellShellCanvas');
-        if (canvas) {
-          canvas.style.removeProperty('position');
-          canvas.style.removeProperty('top');
-          canvas.style.removeProperty('left');
-          canvas.style.removeProperty('right');
-          canvas.style.removeProperty('bottom');
-          canvas.style.removeProperty('width');
-          canvas.style.removeProperty('height');
-          canvas.style.removeProperty('display');
-          canvas.style.removeProperty('flex-direction');
-        }
-        
-        console.log('C@S Content: Zen Mode disabled');
       }
     }
   }
   function applySplitLayout(ratio) {
-    // Don't create split layout inside iframe - it would cause infinite nesting
     if (isInIframe) {
-      console.log('C@S Content: Skipping split layout in iframe');
       return;
     }
     if (splitLayoutActive) {
       updateSplitRatio(ratio);
       return;
     }
-    console.log('C@S Content: Applying Split Layout with ratio:', ratio);
     splitStyleElement = document.createElement('style');
     splitStyleElement.id = 'cs-split-layout-styles';
     splitStyleElement.textContent = `
@@ -611,10 +512,44 @@
         --cs-wolt-width: ${100 - ratio}%;
       }
       
+      /* Clip everything at the split boundary */
+      html.cs-split-active,
+      html.cs-split-active body {
+        overflow-x: hidden !important;
+      }
+      
       /* Add padding to body to make room for Wolt panel and divider */
       html.cs-split-active body {
         padding-right: calc(var(--cs-wolt-width) + 6px) !important;
         box-sizing: border-box !important;
+      }
+      
+      /* Force ALL SAP containers to respect the split width */
+      html.cs-split-active #canvas,
+      html.cs-split-active .sapUshellShellCanvas,
+      html.cs-split-active #shell-container,
+      html.cs-split-active .sapUshellShellCntnt,
+      html.cs-split-active #pageShell,
+      html.cs-split-active #appShell,
+      html.cs-split-active .sapMShell,
+      html.cs-split-active .sapMPage,
+      html.cs-split-active .nepLaunchpadShell,
+      html.cs-split-active .nepPageShell,
+      html.cs-split-active section[id*="page"],
+      html.cs-split-active section[id*="Page"],
+      html.cs-split-active div[id*="page"],
+      html.cs-split-active div[id*="Page"],
+      html.cs-split-active .sapMNavItem,
+      html.cs-split-active .sapMPageBgTransparent {
+        width: var(--cs-sap-width) !important;
+        max-width: var(--cs-sap-width) !important;
+        right: auto !important;
+        overflow-x: hidden !important;
+      }
+      
+      /* Prevent any element from expanding beyond split boundary */
+      html.cs-split-active * {
+        max-width: 100% !important;
       }
       
       /* The divider between panels */
@@ -669,20 +604,16 @@
     document.documentElement.classList.add('cs-split-active');
     
     splitLayoutActive = true;
-    console.log('C@S Content: Split Layout activated');
   }
   function updateSplitRatio(ratio) {
     if (!splitStyleElement) return;
     document.documentElement.style.setProperty('--cs-split-ratio', ratio);
     document.documentElement.style.setProperty('--cs-sap-width', `${ratio}%`);
     document.documentElement.style.setProperty('--cs-wolt-width', `${100 - ratio}%`);
-    console.log('C@S Content: Split ratio updated to:', ratio);
   }
   function removeSplitLayout() {
     if (!splitLayoutActive) return;
-    console.log('C@S Content: Removing Split Layout');
     
-    // Remove drag event listeners
     if (dragHandlers) {
       window.removeEventListener('mousemove', dragHandlers.handleMouseMove);
       window.removeEventListener('mouseup', dragHandlers.handleMouseUp);
@@ -717,7 +648,6 @@
     document.documentElement.style.removeProperty('--cs-wolt-width');
     
     splitLayoutActive = false;
-    console.log('C@S Content: Split Layout removed');
   }
 
   function createElement(tag, options = {}) {
@@ -746,13 +676,9 @@
   }
   
   async function showAlertOverlay(data) {
-    // Don't show alert overlays in iframe - main frame handles it
     if (isInIframe) {
-      console.log('C@S Content: Skipping alert overlay in iframe');
       return;
     }
-    
-    console.log('showAlertOverlay called with data:', data);
     
     // Always use fullscreen overlay (split mode now uses iframe, not custom panels)
     closeAlertOverlay();
@@ -764,7 +690,6 @@
     const settings = await chrome.storage.local.get(['alertDurationSeconds', 'alertOverlay']);
     let seconds = parseInt(settings.alertDurationSeconds, 10) || 10;
     const isWoltOrder = data.orderType === 'wolt';
-    console.log('isWoltOrder:', isWoltOrder, 'data.woltOverlay:', data.woltOverlay);
     
     const customization = (isWoltOrder && data.woltOverlay) ? data.woltOverlay : (data.alertOverlay || {
       position: 'bottom-center',
@@ -775,22 +700,15 @@
       fontSize: 'large'
     });
     
-    console.log('Using customization:', customization);
-    
     const overlay = createElement('div', { id: 'cs-modern-overlay' });
     currentOverlay = overlay;
     if (isWoltOrder) {
       overlay.classList.add('wolt-alert');
-      console.log('Added wolt-alert class');
     }
     const bgLayer = createElement('div', { classes: ['cs-bg-layer'] });
     let hasMedia = false;
     
-    console.log('Media check - videoData:', data.videoData ? 'present' : 'missing');
-    console.log('Media check - imageData:', data.imageData ? 'present' : 'missing');
-    
     if (data.videoData && data.videoData.startsWith('data:video/')) {
-      console.log('Creating video element');
       const vid = createElement('video', { 
         classes: ['cs-media'], 
         attrs: { autoplay: '', loop: '', playsinline: '', muted: '' } 
@@ -801,11 +719,8 @@
       // Ensure video plays (some browsers block autoplay)
       vid.play().catch(e => console.warn('Video autoplay blocked', e));
     } else if (data.imageData && data.imageData.startsWith('data:image/')) {
-      console.log('Creating image element');
       const img = createElement('img', { classes: ['cs-media'] });
       img.src = data.imageData;
-      img.onload = () => console.log('Image loaded successfully');
-      img.onerror = (e) => console.error('Image failed to load', e);
       bgLayer.appendChild(img);
       hasMedia = true;
     }

@@ -8,7 +8,7 @@
 
   let woltSoundFileInput, woltImageFileInput, woltSoundFileName, woltImageFileName;
   
-  let splitModeEnabled;
+  let zenModeEnabled, splitModeEnabled;
   
   let monitorFrame, monitorLeft, monitorRight, monitorDivider;
   let splitRatioLeft, splitRatioRight;
@@ -79,6 +79,7 @@
       woltSoundFileName = document.getElementById('wolt-sound-file-name');
       woltImageFileName = document.getElementById('wolt-image-file-name');
       
+      zenModeEnabled = document.getElementById('zen-mode-enabled');
       splitModeEnabled = document.getElementById('split-mode-enabled');
       
       monitorFrame = document.getElementById('monitor-frame');
@@ -255,6 +256,7 @@
     if (woltSoundFileInput) woltSoundFileInput.addEventListener('change', (e) => handleFileChange(e, 'woltSoundData', 'woltSoundFileName', woltSoundFileName, 'audio'));
     if (woltImageFileInput) woltImageFileInput.addEventListener('change', (e) => handleFileChange(e, 'woltImageData', 'woltImageFileName', woltImageFileName, 'image'));
     
+    if (zenModeEnabled) zenModeEnabled.addEventListener('change', saveSplitSettingsAndApply);
     if (splitModeEnabled) {
       splitModeEnabled.addEventListener('change', () => {
         saveSplitSettingsAndApply();
@@ -383,7 +385,8 @@
           action: 'applySplit', 
           data: { 
             splitRatio: currentSplitRatio,
-            splitModeEnabled: splitModeEnabled?.checked || false
+            splitModeEnabled: splitModeEnabled?.checked || false,
+            zenModeEnabled: zenModeEnabled?.checked || false
           } 
         });
       }
@@ -559,12 +562,13 @@
 
   async function loadSplitSettings() {
     try {
-      const settings = await chrome.storage.local.get(['splitRatio', 'splitModeEnabled']);
+      const settings = await chrome.storage.local.get(['splitRatio', 'splitModeEnabled', 'zenModeEnabled']);
       
       currentSplitRatio = settings.splitRatio || 50;
       updateSplitVisual(currentSplitRatio);
       
       if (splitModeEnabled) splitModeEnabled.checked = settings.splitModeEnabled || false;
+      if (zenModeEnabled) zenModeEnabled.checked = settings.zenModeEnabled || false;
     } catch (error) {
       console.error('Popup: Failed to load split settings:', error);
     }
@@ -574,7 +578,8 @@
     try {
       const settings = {
         splitRatio: currentSplitRatio,
-        splitModeEnabled: splitModeEnabled?.checked || false
+        splitModeEnabled: splitModeEnabled?.checked || false,
+        zenModeEnabled: zenModeEnabled?.checked || false
       };
       
       await chrome.storage.local.set(settings);

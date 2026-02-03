@@ -29,8 +29,6 @@ const DEFAULT_CONFIG = {
 };
 
 chrome.runtime.onInstalled.addListener(async () => {
-  console.log('Collect@Store Background: Extension installed');
-  
   try {
     const settings = await chrome.storage.local.get(['pollIntervalSeconds', 'soundEnabled', 'configInitialized']);
     
@@ -47,7 +45,6 @@ chrome.runtime.onInstalled.addListener(async () => {
         heartbeat: DEFAULT_CONFIG.heartbeat,
         configInitialized: true
       });
-      console.log('Collect@Store Background: Default settings and config initialized');
     }
   } catch (error) {
     console.error('Collect@Store Background: Failed to initialize settings:', error);
@@ -69,7 +66,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           break;
           
         case 'updateSettings':
-          console.log('Collect@Store Background: Settings updated');
           sendResponse({ success: true });
           break;
           
@@ -114,7 +110,6 @@ async function forwardCheckToContent() {
     const tabs = await chrome.tabs.query({ url: 'https://launchpad.elkjop.com/*' });
     
     if (tabs.length === 0) {
-      console.log('Collect@Store Background: No Launchpad tabs open');
       await chrome.storage.local.set({
         connectionStatus: 'error',
         lastError: 'Avaa Launchpad',
@@ -126,16 +121,11 @@ async function forwardCheckToContent() {
     let successCount = 0;
     for (const tab of tabs) {
       try {
-        // Check if content script is loaded by sending a ping
         const response = await chrome.tabs.sendMessage(tab.id, { action: 'triggerCheck' });
         if (response?.success) {
-          console.log('Collect@Store Background: Successfully sent check to tab', tab.id);
           successCount++;
         }
       } catch (e) {
-        console.log('Collect@Store Background: Tab', tab.id, 'unreachable, trying to inject content script...');
-        
-        // Try to inject the content script if it's not responding
         try {
           await chrome.scripting.executeScript({
             target: { tabId: tab.id },
@@ -149,20 +139,16 @@ async function forwardCheckToContent() {
           // Wait a bit for the script to initialize
           await new Promise(r => setTimeout(r, 500));
           
-          // Try again
           const retryResponse = await chrome.tabs.sendMessage(tab.id, { action: 'triggerCheck' });
           if (retryResponse?.success) {
-            console.log('Collect@Store Background: Successfully sent check after re-injection to tab', tab.id);
             successCount++;
           }
         } catch (injectError) {
-          console.warn('Collect@Store Background: Failed to inject/retry for tab', tab.id, ':', injectError.message);
         }
       }
     }
     
     if (successCount === 0) {
-      console.warn('Collect@Store Background: All Launchpad tabs unreachable');
       await chrome.storage.local.set({
         connectionStatus: 'error',
         lastError: 'Tab ei vastaa',
@@ -190,8 +176,6 @@ async function handleOrderUpdate(data) {
     const storeName = data?.storeName || '';
     const pendingOrders = Array.isArray(data?.pendingOrders) ? data.pendingOrders : [];
     
-    console.log('Collect@Store Background: Order update - Collect:', collectCount, 'Wolt:', woltCount);
-    
     const prevState = await chrome.storage.local.get(['notifiedCount', 'notifiedWoltCount']);
     const notifiedCount = parseInt(prevState.notifiedCount, 10) || 0;
     const notifiedWoltCount = parseInt(prevState.notifiedWoltCount, 10) || 0;
@@ -202,14 +186,12 @@ async function handleOrderUpdate(data) {
     if (hasNewWolt || hasNewCollect) {
       if (hasNewWolt) {
         const newWoltOrders = woltCount - notifiedWoltCount;
-        console.log('Collect@Store Background: New Wolt orders detected:', newWoltOrders);
         
         await chrome.storage.local.set({ alertWoltOrderCount: newWoltOrders });
         await showSystemNotification(woltCount, newWoltOrders, 'wolt');
         await showContentAlert(woltCount, newWoltOrders, 'wolt');
       } else if (hasNewCollect) {
         const newOrders = collectCount - notifiedCount;
-        console.log('Collect@Store Background: New Collect orders detected:', newOrders);
         
         await chrome.storage.local.set({ alertOrderCount: newOrders });
         await showSystemNotification(collectCount, newOrders, 'collect');
@@ -314,10 +296,8 @@ async function showContentAlert(totalCount, newCount, orderType = 'collect') {
             heartbeat: settings.heartbeat || DEFAULT_CONFIG.heartbeat
           }
         });
-        console.log('Collect@Store Background: Alert sent to tab', tab.id, 'type:', orderType);
         return;
       } catch (e) {
-        console.log('Collect@Store Background: Could not show alert:', e.message);
       }
     }
     
