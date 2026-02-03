@@ -503,6 +503,8 @@
       updateSplitRatio(ratio);
       return;
     }
+    
+    // Simple approach: hide original content, show two iframes side by side
     splitStyleElement = document.createElement('style');
     splitStyleElement.id = 'cs-split-layout-styles';
     splitStyleElement.textContent = `
@@ -512,73 +514,44 @@
         --cs-wolt-width: ${100 - ratio}%;
       }
       
-      /* Clip everything at the split boundary */
-      html.cs-split-active,
-      html.cs-split-active body {
-        overflow-x: hidden !important;
+      /* Hide original page content */
+      html.cs-split-active body > *:not(#cs-split-container):not(script):not(style):not(link) {
+        display: none !important;
       }
       
-      /* Add padding to body to make room for Wolt panel and divider */
-      html.cs-split-active body {
-        padding-right: calc(var(--cs-wolt-width) + 6px) !important;
-        box-sizing: border-box !important;
-      }
-      
-      /* Force ALL SAP containers to respect the split width */
-      html.cs-split-active #canvas,
-      html.cs-split-active .sapUshellShellCanvas,
-      html.cs-split-active #shell-container,
-      html.cs-split-active .sapUshellShellCntnt,
-      html.cs-split-active #pageShell,
-      html.cs-split-active #appShell,
-      html.cs-split-active .sapMShell,
-      html.cs-split-active .sapMPage,
-      html.cs-split-active .nepLaunchpadShell,
-      html.cs-split-active .nepPageShell,
-      html.cs-split-active section[id*="page"],
-      html.cs-split-active section[id*="Page"],
-      html.cs-split-active div[id*="page"],
-      html.cs-split-active div[id*="Page"],
-      html.cs-split-active .sapMNavItem,
-      html.cs-split-active .sapMPageBgTransparent {
-        width: var(--cs-sap-width) !important;
-        max-width: var(--cs-sap-width) !important;
-        right: auto !important;
-        overflow-x: hidden !important;
-      }
-      
-      /* Prevent any element from expanding beyond split boundary */
-      html.cs-split-active * {
-        max-width: 100% !important;
-      }
-      
-      /* The divider between panels */
-      #cs-split-divider {
+      /* The split container takes full screen */
+      #cs-split-container {
         position: fixed !important;
         top: 0;
-        right: var(--cs-wolt-width);
-        width: 4px;
-        height: 100vh;
-        background: rgba(0, 0, 0, 0.15);
-        z-index: 10001;
-        backdrop-filter: blur(10px);
-        -webkit-backdrop-filter: blur(10px);
-        box-shadow: 0 0 20px rgba(0, 0, 0, 0.1);
-      }
-      
-      /* The right panel with iframe showing SAP */
-      #cs-wolt-panel {
-        position: fixed !important;
-        top: 0;
+        left: 0;
         right: 0;
-        width: var(--cs-wolt-width);
-        height: 100vh;
-        overflow: hidden;
-        background: #fff;
+        bottom: 0;
+        display: flex !important;
+        flex-direction: row !important;
         z-index: 9999;
-        box-shadow: -5px 0 20px rgba(0,0,0,0.3);
+        background: #fff;
       }
-      #cs-wolt-panel iframe {
+      
+      /* Left panel (SAP Launchpad) */
+      #cs-split-left {
+        width: var(--cs-sap-width);
+        height: 100%;
+        overflow: hidden;
+        border-right: 4px solid rgba(0, 0, 0, 0.15);
+      }
+      #cs-split-left iframe {
+        width: 100%;
+        height: 100%;
+        border: none;
+      }
+      
+      /* Right panel (SAP Launchpad copy) */
+      #cs-split-right {
+        width: var(--cs-wolt-width);
+        height: 100%;
+        overflow: hidden;
+      }
+      #cs-split-right iframe {
         width: 100%;
         height: 100%;
         border: none;
@@ -586,21 +559,34 @@
     `;
     document.head.appendChild(splitStyleElement);
     
-    // Add the divider between panels (non-draggable, visual only)
-    splitDividerElement = document.createElement('div');
-    splitDividerElement.id = 'cs-split-divider';
-    document.body.appendChild(splitDividerElement);
+    // Create the split container
+    const splitContainer = document.createElement('div');
+    splitContainer.id = 'cs-split-container';
     
-    // Add the right panel with an iframe showing the same SAP page
-    woltPanelElement = document.createElement('div');
-    woltPanelElement.id = 'cs-wolt-panel';
-    const iframe = document.createElement('iframe');
-    iframe.src = window.location.href;
-    iframe.id = 'cs-split-iframe';
-    woltPanelElement.appendChild(iframe);
-    document.body.appendChild(woltPanelElement);
+    // Create left panel with iframe
+    const leftPanel = document.createElement('div');
+    leftPanel.id = 'cs-split-left';
+    const leftIframe = document.createElement('iframe');
+    leftIframe.src = window.location.href;
+    leftIframe.id = 'cs-split-iframe-left';
+    leftPanel.appendChild(leftIframe);
     
-    // Add class to html element to shrink the page
+    // Create right panel with iframe  
+    const rightPanel = document.createElement('div');
+    rightPanel.id = 'cs-split-right';
+    const rightIframe = document.createElement('iframe');
+    rightIframe.src = window.location.href;
+    rightIframe.id = 'cs-split-iframe-right';
+    rightPanel.appendChild(rightIframe);
+    
+    splitContainer.appendChild(leftPanel);
+    splitContainer.appendChild(rightPanel);
+    document.body.appendChild(splitContainer);
+    
+    // Store reference for cleanup
+    woltPanelElement = splitContainer;
+    
+    // Add class to html element
     document.documentElement.classList.add('cs-split-active');
     
     splitLayoutActive = true;
@@ -621,13 +607,13 @@
       dragHandlers = null;
     }
     
-    // Remove the Wolt panel
+    // Remove the split container (contains both panels)
     if (woltPanelElement) {
       woltPanelElement.remove();
       woltPanelElement = null;
     }
     
-    // Remove the divider
+    // Remove the divider (if exists from old implementation)
     if (splitDividerElement) {
       splitDividerElement.remove();
       splitDividerElement = null;
